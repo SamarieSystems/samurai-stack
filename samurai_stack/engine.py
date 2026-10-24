@@ -468,7 +468,11 @@ def runtime_files(c, stage):
     guard_source = Path(__file__).with_name("runtime_guard.py").read_text()
     guard_path = root / "runtime_guard.py"
     atomic_write(guard_path, guard_source, replace=guard_path.exists())
-    saved_config = root / "site.json"
+    # Each unit must validate the storage described by its own Compose recipe.
+    # A later management-only apply may use different storage settings and must
+    # not redirect an existing media unit's startup guard to that other tree.
+    # Leave the legacy root/site.json intact for units not yet reapplied.
+    saved_config = stage_path(c, stage) / "site.json"
     write_json(saved_config, c, replace=saved_config.exists())
     if c["vpn"].get("port_forwarding"):
         source = Path(__file__).resolve().parent.parent / "scripts" / "port_sync.py"

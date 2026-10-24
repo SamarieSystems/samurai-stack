@@ -116,6 +116,30 @@ class EngineTests(unittest.TestCase):
         check_mount.assert_not_called()
         verify.assert_not_called()
 
+    def test_management_apply_cannot_change_another_stages_guard_configuration(self):
+        media = copy.deepcopy(self.c)
+        media['install_root'] = str(self.root)
+        management = copy.deepcopy(media)
+        management['storage']['data_root'] = '/srv/other-data'
+        management['storage']['expected_mount'] = {'target': '/', 'source': '/dev/other', 'fstype': 'ext4'}
+        for stage in (2, 4):
+            engine.stage_path(media, stage).mkdir(parents=True)
+        legacy = self.root / 'site.json'
+        legacy.write_text('legacy guard configuration retained for unreapplied units\n')
+        legacy_before = legacy.read_bytes()
+
+        _, _, media_config = engine.runtime_files(media, 2)
+        media_before = media_config.read_bytes()
+        _, _, management_config = engine.runtime_files(management, 4)
+
+        self.assertNotEqual(media_config, management_config)
+        self.assertEqual(media_config.parent, engine.stage_path(media, 2))
+        self.assertEqual(management_config.parent, engine.stage_path(media, 4))
+        self.assertEqual(json.loads(media_config.read_text()), media)
+        self.assertEqual(json.loads(management_config.read_text()), management)
+        self.assertEqual(media_config.read_bytes(), media_before)
+        self.assertEqual(legacy.read_bytes(), legacy_before)
+
     def test_foreign_project_collision_blocks_container_recreation(self):
         calls = []
         def fake(argv, **kwargs):

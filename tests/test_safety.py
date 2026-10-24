@@ -1,9 +1,11 @@
 import copy
+import errno
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from samurai_stack.cli import default_config
 from samurai_stack import safety
@@ -54,6 +56,17 @@ class ConfigTests(unittest.TestCase):
 
 
 class FileTests(unittest.TestCase):
+    def test_interrupted_replacement_preserves_existing_file_and_cleans_temporary_input(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p = Path(folder) / 'receipt.json'
+            p.write_text('previous verified receipt\n')
+            before = p.read_bytes()
+            with mock.patch.object(safety.os, 'fsync', side_effect=OSError(errno.ENOSPC, 'synthetic full filesystem')):
+                with self.assertRaises(OSError):
+                    safety.atomic_write(p, 'incomplete replacement\n', replace=True)
+            self.assertEqual(p.read_bytes(), before)
+            self.assertEqual({item.name for item in Path(folder).iterdir()}, {'receipt.json'})
+
     def test_atomic_write_cannot_clobber_existing_document(self):
         with tempfile.TemporaryDirectory() as folder:
             p = Path(folder) / 'precious.txt'

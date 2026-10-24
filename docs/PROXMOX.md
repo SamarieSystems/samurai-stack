@@ -123,8 +123,8 @@ been verified. A reachable agent does not prove cloud-init or your applications
 finished successfully. With DHCP and no functioning guest agent, find the lease
 using your router or guest console rather than scanning an unknown network.
 
-After SSH is available, run this **from the coordinator, not in cloud-init's
-own `runcmd`**:
+After SSH is available, run this **inside the guest through your SSH session,
+not in cloud-init's own `runcmd`**:
 
 ```bash
 cloud-init status --wait --format json
@@ -198,7 +198,7 @@ booted with systemd. Python 3.11 or newer must already be available.
 
 ```bash
 umask 077
-bash scripts/bootstrap-host.sh --plan > guest-plan.json
+sudo bash scripts/bootstrap-host.sh --plan > guest-plan.json
 python3 -m json.tool guest-plan.json
 ```
 
@@ -216,6 +216,7 @@ explicit acknowledgements above and root inside the guest. The plan binds the
 guest's machine ID, OS/codename, architecture, installed packages, apt sources
 and bootstrap script contents. If a partial attempt installed packages or
 created repository files, generate and inspect a new plan before retrying.
+Planning also uses root so retries can inspect the private bootstrap receipt.
 
 It installs missing `ca-certificates`, `curl`, `nfs-common`, `qemu-guest-agent`,
 Docker CE, its CLI, `containerd.io`, Buildx and the Compose plugin. It uses

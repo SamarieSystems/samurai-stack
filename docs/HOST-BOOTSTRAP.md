@@ -16,12 +16,16 @@ changes; redirecting its output creates the private plan file you requested:
 
 ```bash
 umask 077
-bash scripts/bootstrap-host.sh --plan > guest-plan.json
+sudo bash scripts/bootstrap-host.sh --plan > guest-plan.json
 python3 -m json.tool guest-plan.json
 ```
 
 Read `effects`, OS/codename, architecture, machine ID, package list and repository
 information. Copy the plan's `review_hash` into this command:
+
+Use `sudo` for planning too. After the first apply, inspecting its private
+root-owned receipt requires root. The shell still creates `guest-plan.json`
+as your current user under the `umask` above. Use a new filename on retries.
 
 ```bash
 sudo bash scripts/bootstrap-host.sh --apply \

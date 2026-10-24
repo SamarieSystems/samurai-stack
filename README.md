@@ -5,9 +5,9 @@
 
 A repeatable path from a new Linux guest to a private media server. Review a plan, apply one stage, connect its applications, then verify before adding more.
 
-**0.1.0 alpha 1.** Commissioned on a fresh, disposable Debian 13 VM with CPU-only applications and synthetic data. The [validation report](docs/VALIDATION.md) separates live results from the hardware, commercial-provider and manual enrollment checks still required on your machine. Start with test storage and follow the [acceptance checklist](docs/ACCEPTANCE.md) before trusting a new installation with personal files.
+**0.1.0 alpha 2.** Commissioned on a fresh, disposable Debian 13 VM with CPU-only applications and synthetic data. The [validation report](docs/VALIDATION.md) separates live results from the hardware, commercial-provider and manual enrollment checks still required on your machine. Start with test storage and follow the [acceptance checklist](docs/ACCEPTANCE.md) before trusting a new installation with personal files.
 
-**New installation:** follow the [Quickstart](docs/QUICKSTART.md). It covers configuration, storage, media, VPN torrents and first-use checks. Read [Security and data boundaries](docs/SECURITY.md) before using existing storage or exposing administrator interfaces.
+**New installation:** gather the [deployment-night intake](docs/DEPLOYMENT-NIGHT.md), then follow the [Quickstart](docs/QUICKSTART.md). They cover hardware, credentials, manual work, configuration, storage, media, VPN torrents and first-use checks. Read [Security and data boundaries](docs/SECURITY.md) before using existing storage or exposing administrator interfaces.
 
 Python 3.11+ and Docker Compose v2.24+; application stages target a Debian 12/13 or Ubuntu 24.04/26.04 systemd VM. CPU-only is supported. No Python packages are required. Proxmox and a separate NAS are optional once a supported Linux guest already exists.
 

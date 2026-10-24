@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-alpha.2 - 2026-10-24
+
+- Save each stage's startup-guard configuration beside its own Compose file.
+  Applying management with different storage settings no longer changes the
+  guard configuration used by an existing media stage. Existing alpha 1 units
+  retain their legacy config until deliberately reapplied.
+- Add a deployment-night walkthrough covering existing pooled disks,
+  torrents-only installations, hardware/access intake and manual migration work.
+- Correct bootstrap retry examples to use sudo for private receipts, and require
+  identical mount identity across guests sharing a storage marker.
+- Add regressions for cross-stage isolation and disk-full atomic replacement.
+
+For existing alpha 1 installations, copy this release into a separate source
+directory, retain site configuration/appdata/secrets/image locks, and generate
+new reviewed plans for application stages you want to reapply. Do not erase
+working data or copy a plan from the previous version.
+
 ## 0.1.0-alpha.1 - 2026-10-24
 
 First public alpha of the staged homelab deployment toolkit.

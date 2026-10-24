@@ -17,6 +17,12 @@ findmnt --target /mnt/media --output TARGET,SOURCE,FSTYPE,OPTIONS
 
 Configure a persistent mount deliberately in your guest's `/etc/fstab`, then test that exact entry. The installer does not edit fstab, guess an NFS version, or turn a failed mount into a local directory. Use the exact TARGET, SOURCE and FSTYPE that `findmnt` reports as `storage.expected_mount`. A NAS using NFSv3 may report `nfs`; do not claim `nfs4` in that case. Avoid soft NFS mounts for application writes.
 
+When multiple guests share this tree, use the same mountpoint path, canonical
+NAS/export spelling and NFS version on all of them. The marker records the exact
+target/source/type as well as the deployment UUID; different mount paths or
+hostname aliases are not interchangeable in this release. Never edit the
+marker to bypass an identity refusal.
+
 Choose a new child directory such as `/mnt/media/samurai`. Stage 0 makes this tree additively:
 
 ```text

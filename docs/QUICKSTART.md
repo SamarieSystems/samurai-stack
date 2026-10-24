@@ -8,6 +8,8 @@ does not require starting the installation again.
 
 This guide is the operator walkthrough. The dated [validation record](VALIDATION.md)
 states which parts of the current alpha have actually been exercised.
+Gather the [deployment-night intake](DEPLOYMENT-NIGHT.md) first if you are setting
+this up for someone else; it lists the access, hardware and manual choices needed.
 
 ## 1. Choose where it runs
 
@@ -40,7 +42,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.1.0-alpha.1
+git checkout v0.1.0-alpha.2
 python3 stack --version
 ```
 
@@ -102,9 +104,11 @@ Do not independently run `init` on every guest and expect the resulting UUIDs
 to share one storage marker. A different UUID is a different installation.
 Do not change a storage marker to work around that refusal.
 
-The mount's reported target/source/type must match the configuration on that
-guest. An identically named directory on another machine is not proof that it
-contains the same backing files.
+For a shared data root, use the same mountpoint path, canonical export spelling
+and NFS version on every guest. Its storage marker also binds the exact
+`expected_mount` target/source/type, so a different local mount path or NAS
+hostname alias will be refused even if it reaches the same export. An identically
+named directory on another machine is not proof that it contains the same files.
 
 ## 3. Prepare and verify the data tree
 

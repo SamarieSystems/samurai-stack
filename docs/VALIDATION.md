@@ -3,6 +3,51 @@
 October 24, 2026. These are measured results from the release candidate, not a
 claim that every supported provider, device or deployment has been tested.
 
+## Alpha 2 failure and recovery pass
+
+The additional October 24 pass used the same isolated disposable VM and no
+production NAS mounts, VPN credentials or personal files.
+
+- Linux: all 186 tests passed. Windows: 183 passed, with three platform/runtime
+  skips. All 16 Compose render scenarios parsed with the real Compose client.
+- A real 64 MiB loop-backed ext4 test filesystem was filled until no allocatable
+  blocks remained. Stage 0 failed visibly, recorded failure and released its
+  apply lock. Removing only the test filler allowed a new reviewed apply to
+  recover without rebuilding storage.
+- Denied media-UID permissions, a read-only remount and an unmounted filesystem
+  were refused. Remounting restored verification; no local fallback tree was
+  created and the outside sentinel's bytes/metadata were unchanged.
+- The pass found and fixed a cross-stage guard configuration bug. Each unit now
+  uses its own saved config. A real management apply with different unavailable
+  storage left the media guard unchanged. With the media guard's expected source
+  deliberately wrong, systemd refused media startup while Dockge/Kuma returned
+  HTTP 200. Restoring it recovered all 14 media checks.
+- Three owned-WireGuard drop/recovery cycles blocked tunnel traffic and physical
+  interface escape while an outside control remained reachable. Each recovery
+  was followed by a new URI-only magnet with successful metadata exchange and
+  a complete, hash-matched 1 MiB payload. No tag/approval gate was needed.
+- A separate upload receiver received the complete hash-matched 1 MiB payload;
+  qBit's uploaded counter increased by that amount. Reconnecting this reused
+  fixture took about 95 seconds, so this is not a throughput benchmark.
+- Eight concurrent authenticated API clients completed 160 read requests with
+  correct results. Invalid-password and unauthenticated requests were rejected.
+  Final qBit settings retained tun0, zero bandwidth caps and unlimited upload
+  slots; discovery preferences were restored after controlled peer testing.
+- Bootstrap retry planning succeeded with the corrected sudo example, which can
+  read the private prior receipt without weakening its permissions.
+- A separate fresh install/data tree exercised the torrents-only profile:
+  stage 0 repeated, all six media UIs returned HTTP 200, SABnzbd was absent,
+  and a repeated apply preserved container IDs and start times. Unfinished
+  Jellyfin/Seerr onboarding remained pending and verification refused false
+  success. The new test stage was stopped/disabled and its temporary guest-only
+  IP removed afterward; the outside sentinel was unchanged.
+
+The tunnel cycles took about 21 to 26 seconds including deliberate probe
+timeouts; fresh magnets completed in about 17 to 18 seconds. These are small,
+owned fixtures, not commercial VPN, swarm, line-rate or long-duration load
+certification. Provider, hardware, storage-pool migration and actual client
+playback checks below still apply.
+
 ## Disposable installation
 
 A new Proxmox VE 9.0.3 guest used the official SHA512-pinned Debian 13 cloud
