@@ -1,0 +1,16 @@
+# First-machine acceptance
+
+Automated unit tests and Compose validation are necessary, but they do not commission a fresh machine. Use disposable test files and a new VM before trusting personal data to this candidate.
+
+Record each check, command result, software/image lock and outcome. Keep private credentials out of any shared receipt.
+
+1. **Storage:** Put a disposable sentinel outside the new directory. Apply stage 0 twice. Confirm sentinel bytes and metadata are unchanged, actual UID/GID can write, and hardlink probe passes. Unmount the test share; plan/apply/start must refuse it without creating a local media tree. Mount a different export at the same path; the identity check must refuse it too.
+2. **Foundation:** Review selected existing storage and bridge, VM IDs, resources, image checksum and exact command plan. Provision a new disposable VM; rerun and confirm no extra VM/root disk. Refuse an occupied foreign VM ID. Confirm SSH, cloud-init completion without errors, guest-agent operation and the intended addresses separately from the VM-definition check.
+3. **Media:** Finish account enrollment, run configure twice, then verify. Supply your provider/indexer credentials in their UIs. Download one legal test item, verify the actual file on storage, import it, play it through Jellyfin, and confirm its complete path/size. Check subtitle integration with your provider. Test software playback before enabling acceleration.
+4. **VPN torrents:** Compare the host's public IP with the VPN namespace's IP using a trusted HTTPS endpoint. Confirm the container namespace relationship and qBit's tun0 binding. Use a harmless legal torrent and verify payload bytes. On this disposable setup only, interrupt the tunnel while observing traffic: qBit must not fall back to the host network. Restore it and verify recovery, forwarding updates and a real transfer. A low rate without interested peers is not proof of a failed tunnel.
+5. **Management:** Create authenticated administrators, configure monitors and the notification provider you actually use, and receive a test alert. Take the test NAS offline; management must remain accessible. If management shares the media VM, stopping that VM necessarily stops its local management services.
+6. **Photos:** Create the administrator and upload disposable pictures. Test originals retrieval and thumbnail generation. Back up originals plus database and perform an isolated restore. Keep existing family photos outside first-run testing.
+7. **Music:** Play an existing test track from Navidrome. Confirm slskd credentials and paths, use only authorized test material, and do not assume downloading also imports/tag-fixes the library. If selected, enroll Music Assistant and test a real player separately.
+8. **Cold boot:** Reboot the disposable guest with storage available, then with storage unavailable. Confirm data-dependent stages refuse unavailable storage and management remains available. Resolve the mount, restart the named stage unit and verify recovery.
+
+No fresh-machine end-to-end completion is claimed until these are recorded. Publish an alpha candidate honestly rather than labeling a green test suite a production certification.

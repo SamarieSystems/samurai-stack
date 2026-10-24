@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "deployment_id": "68952db3-898d-4e9b-a8fd-e7d7ea4f6e39",
+  "deployment_name": "homelab",
+  "role": "all",
+  "install_root": "/opt/samurai",
+  "bind_address": "192.168.1.50",
+  "timezone": "Etc/UTC",
+  "puid": 1000,
+  "pgid": 1000,
+  "storage": {
+    "mode": "nfs",
+    "data_root": "/mnt/media/samurai",
+    "allow_existing_contents": false,
+    "expected_mount": {
+      "target": "/mnt/media",
+      "source": "192.168.1.10:/export/media",
+      "fstype": "nfs4"
+    }
+  },
+  "hosts": {
+    "media": "192.168.1.50",
+    "torrent": "192.168.1.50",
+    "management": "192.168.1.50",
+    "photos": "192.168.1.50",
+    "music": "192.168.1.50"
+  },
+  "hardware": {
+    "acceleration": "cpu"
+  },
+  "downloads": {
+    "prefer": "usenet"
+  },
+  "vpn": {
+    "provider": "protonvpn",
+    "type": "wireguard",
+    "port_forwarding": false
+  },
+  "features": {
+    "usenet": true,
+    "torrents": true,
+    "photos": false,
+    "music": false,
+    "dashboard": false,
+    "music_assistant": false
+  }
+}

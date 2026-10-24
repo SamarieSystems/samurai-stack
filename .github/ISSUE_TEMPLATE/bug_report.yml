@@ -1,0 +1,46 @@
+name: Installation or runtime bug
+description: Report a reproducible failure in a stage, check or recovery path.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep passwords, API keys, VPN profiles and private site files out of this issue. Use private vulnerability reporting for security defects.
+  - type: input
+    id: version
+    attributes:
+      label: Toolkit version or commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Guest OS, Python and Docker Compose versions
+      placeholder: Debian 13, Python 3.13, Compose 5.x
+    validations:
+      required: true
+  - type: input
+    id: stage
+    attributes:
+      label: Stage and operation
+      placeholder: Stage 2, configure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction and observed result
+      description: Include the exact command with sensitive values removed, what happened, and what should have happened.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Relevant error, status receipt or service log. Do not attach site.json, secrets, VPN configuration or entire unreviewed logs.
+  - type: checkboxes
+    id: preservation
+    attributes:
+      label: Data and privacy
+      options:
+        - label: I reviewed the text and attachments for credentials and personal information.
+          required: true

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+site*.json
+*plan.json
+plan*.json
+*-plan*.json
+*.env
+secrets/
+state/
+appdata/
+evidence/
+*.tar
+*.tar.gz
+*.zip
+!examples/*.json
