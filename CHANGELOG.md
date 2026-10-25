@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1 - 2026-10-25
+
+- Correct a management reservation test that assumed temporary application
+  directories belong to UID 1000. GitHub's Ubuntu Python 3.11 runner uses UID
+  1001, which correctly failed the fixture's ownership proof. The test now
+  matches its intended media identity to its actual temporary-directory owner.
+- Add an explicit UID 1001 regression proving that a mismatched intended owner
+  is still rejected. Production account, directory and VPN safeguards are
+  unchanged; the runtime commissioning recorded for 0.2.0 still applies.
+- Hold the existing `v0.2.0` tag and draft before release publication after that
+  hosted CI failure. Keep the tag immutable and supersede it with this patch;
+  do not present the canceled/unobserved CI matrix entries as successful.
+
 ## 0.2.0 - 2026-10-25
 
 - Complete the supported staged Debian media-server installer with consistent

@@ -9,6 +9,7 @@ import sqlite3
 import stat
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -303,6 +304,12 @@ class ManagementTests(unittest.TestCase):
             self.plan()
 
     def test_before_start_reservation_allows_only_its_fresh_kuma_database_initialization(self):
+        # Temporary appdirs belong to the ordinary test runner, which is not
+        # necessarily UID 1000 (GitHub Ubuntu runners currently use UID 1001).
+        # Make that real owner the intended media UID for this fresh fixture.
+        owner = (self.root / "appdata/dockge").stat().st_uid
+        if os.name == "posix" and owner != 0:
+            self.c["puid"] = owner
         (self.root / "stages/homelab-4/compose.yaml").unlink()
         for name in management.SERVICES:
             (self.root / "appdata" / name / management.DATABASES[name]).unlink()
@@ -315,6 +322,31 @@ class ManagementTests(unittest.TestCase):
         document = self.plan(False)
         self.assertEqual(document["apps"]["uptime-kuma"]["database_state"]["database"], None)
         self.assertEqual(document["apps"]["uptime-kuma"]["action"], "create_first_administrator")
+
+    def test_uid_1001_fresh_directories_require_matching_intended_media_uid(self):
+        (self.root / "stages/homelab-4/compose.yaml").unlink()
+        directories = {Path(self.c["install_root"]) / "appdata" / name for name in management.SERVICES}
+        for name in management.SERVICES:
+            (self.root / "appdata" / name / management.DATABASES[name]).unlink()
+        original_stat = Path.stat
+
+        def uid_1001(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path in directories:
+                fields = list(result); fields[4] = 1001
+                return os.stat_result(fields)
+            return result
+
+        empty = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, "", "")
+        with patch.object(management, "os", SimpleNamespace(name="posix")), \
+             patch.object(management, "_guard"), patch.object(Path, "stat", uid_1001):
+            self.c["puid"] = 1000
+            receipt = management.reserve_fresh(self.c, runner=empty)
+            self.assertFalse(any(row["eligible"] for row in receipt["apps"].values()))
+            (self.root / "state/management-onboarding.json").unlink()
+            self.c["puid"] = 1001
+            receipt = management.reserve_fresh(self.c, runner=empty)
+            self.assertTrue(all(row["eligible"] for row in receipt["apps"].values()))
 
     def test_missing_legacy_database_with_unknown_files_is_never_assumed_fresh(self):
         path = self.root / "appdata/uptime-kuma/kuma.db"

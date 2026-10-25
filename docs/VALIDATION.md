@@ -3,6 +3,30 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.1: Hosted-runner UID fixture correction
+
+October 25, 2026. Hosted Python 3.11 CI exposed a management reservation fixture
+whose temporary directory belonged to Ubuntu runner UID 1001 while its intended
+media identity remained the default UID 1000. The production ownership check
+correctly refused that mismatch. Publication of the `v0.2.0` draft was held;
+the existing tag is retained unchanged and superseded by 0.2.1. Other canceled
+or unobserved hosted matrix results are not counted as passes.
+
+Only the test fixture and release metadata/documentation changed. The fixture
+uses its actual nonroot directory owner as its intended PUID. A separate
+regression simulates owner UID 1001 and proves that intended UID 1000 is still
+refused while intended UID 1001 is accepted. Runtime ownership constraints,
+application code, provider/VPN safeguards and the commissioning results below
+are unchanged.
+
+The full 944-test suite then passed in the isolated Debian guest as root
+(14 explicit skips) and as an actual UID/GID 1001 process (13 skips). That
+process used a private copied cached Node binary without a sudo grant, new
+login account or global runtime installation. All 21 Compose parser scenarios
+passed, and the 137-file source audit reported zero findings. This closes the
+local UID regression; hosted Python-version CI remains a distinct publication
+gate rather than an assumed result.
+
 ## 0.2.0: Integrated installer and assisted commissioning
 
 October 25, 2026. Earlier candidate evidence is retained below rather than
