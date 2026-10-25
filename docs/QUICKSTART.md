@@ -47,7 +47,7 @@ Application ports bind to the selected LAN address; installing Tailscale alone
 does not also bind those ports to a separate Tailscale address.
 
 Download `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2).
+[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3).
 Copy both files into one directory in the guest. In a terminal in that directory:
 
 ```sh
@@ -116,7 +116,7 @@ require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.sh` release asset. Obtain it from the
-[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2)
+[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
@@ -155,7 +155,7 @@ the release candidate source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.2.0-rc.2
+git checkout v0.2.0-rc.3
 ./setup
 ```
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0-rc.3 - 2026-10-25
+
+- Include the naming dependency in the standalone hardlink repair payload.
+  RC2's main installer worked, but its focused `samurai-hardlinks.pyz` could
+  not start. Keep the published RC2 tag unchanged and supersede it here.
+- Exercise the actual packaged entry points under isolated Python from an
+  empty directory, so archive-content checks cannot hide missing imports.
+
 ## 0.2.0-rc.2 - 2026-10-25
 
 - Ask new guided installations for meaningful Compose project names shown in

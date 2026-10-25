@@ -3,6 +3,23 @@
 The dated sections record measured results for each release candidate. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.0-rc.3: Standalone repair packaging
+
+October 25, 2026. Verification of RC2's actual downloaded assets caught a
+missing dependency in the standalone hardlink repair payload. The full setup
+payload worked, but `samurai-hardlinks.pyz --help` failed to import `naming`.
+The immutable RC2 tag is retained; use RC3 for new downloads.
+
+The focused builder now includes that module. New tests build the actual
+payload, run it with isolated Python from an empty working directory and assert
+that its imports come from the archive. A read-only custom-project hardlink
+verification uses real private fixture files with injected Docker/HTTP
+boundaries; no live applications or media are involved. The release-builder
+test also launches both generated Python entry points rather than checking
+archive contents alone. All 753 Windows tests completed successfully with 44
+platform/runtime skips; the public source audit scanned 117 files with zero
+findings. The live naming and Linux functional evidence below remains unchanged.
+
 ## 0.2.0-rc.2: Compose naming and private remote access
 
 October 25, 2026. The same isolated Debian 13 disposable VM tested a new custom

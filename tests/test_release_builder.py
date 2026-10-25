@@ -105,6 +105,20 @@ class ReleaseBuilderTests(unittest.TestCase):
         if os.name == 'posix':
             self.assertEqual(stat.S_IMODE((output / 'samurai-setup.sh').stat().st_mode), 0o700)
 
+    def test_packaged_entry_points_run_without_checkout_imports(self):
+        output, _ = self.build()
+        empty = self.root / 'empty invocation'
+        empty.mkdir()
+        for name, argument, expected in (
+                ('samurai-setup.pyz', '--version', '0.2.0rc1'),
+                ('samurai-hardlinks.pyz', '--help', '--apply')):
+            with self.subTest(asset=name):
+                result = subprocess.run([sys.executable, '-I', str(output / name), argument],
+                    cwd=empty, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(expected, result.stdout)
+        self.assertEqual(list(empty.iterdir()), [])
+
     def test_same_commit_build_is_deterministic_across_output_directories(self):
         first, _ = self.build('first')
         second, _ = self.build('second')
