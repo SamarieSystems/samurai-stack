@@ -13,7 +13,7 @@ from pathlib import Path
 import shutil
 import sys
 
-from . import installation_registry as registry, recovery
+from . import installation_registry as registry, recovery, naming
 from .safety import SafetyError, digest, no_symlinks, private_read, run, validate_config
 
 
@@ -61,7 +61,7 @@ def _source_matches_runtime(config, report):
     if not containers:
         return
     identifier = config["deployment_id"]
-    projects = {config["deployment_name"] + "-" + str(stage) for stage in range(7)}
+    projects = {naming.project_name(config, stage) for stage in range(7)}
     matched = False
     for row in containers:
         if not isinstance(row, dict):

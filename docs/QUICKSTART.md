@@ -32,12 +32,22 @@ Have these facts ready:
 | Providers | VPN protocol/configuration, Usenet service credentials if enabled, and your own indexer/subtitle accounts. |
 | First users | One media application administrator username/password and a different everyday Jellyfin/Seerr viewer username/password. For an existing Jellyfin owner, have its current login ready. Do not reuse Linux root/SSH credentials. |
 
+For a new installation, storage setup also asks for each Compose stack's name
+as shown in Dockge. Press Enter for the suggested `homelab-media`,
+`homelab-torrents`, `homelab-management`, `homelab-photos` and `homelab-music`
+names, or choose your own. Optional photos/music names reserve their identities;
+those services remain disabled. An existing installation keeps its saved names.
+
 The [deployment intake](DEPLOYMENT-NIGHT.md) includes hardware inventory commands,
 resource planning and the existing-machine branch. Leave photos/music off until
 the core download/import/playback path works. No GPU is required.
 
+For access from another house, see [Private remote access](REMOTE-ACCESS.md).
+Application ports bind to the selected LAN address; installing Tailscale alone
+does not also bind those ports to a separate Tailscale address.
+
 Download `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1).
+[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2).
 Copy both files into one directory in the guest. In a terminal in that directory:
 
 ```sh
@@ -106,7 +116,7 @@ require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.sh` release asset. Obtain it from the
-[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1)
+[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
@@ -145,7 +155,7 @@ the release candidate source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.2.0-rc.1
+git checkout v0.2.0-rc.2
 ./setup
 ```
 

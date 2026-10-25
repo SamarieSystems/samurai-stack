@@ -96,7 +96,7 @@ class LocalMountChoiceTests(unittest.TestCase):
             host.interfaces = host.interfaces[1:2]
             host.rows.append({**MOUNT, "target": str(disk)})
             site = root / "site.json"
-            answers = InputAnswers(["", str(root / "apps"), "Etc/UTC", "", "2", "", "", "", "", "yes"])
+            answers = InputAnswers(["", str(root / "apps"), "Etc/UTC", "", "2", "", "", "", "", "", "", "", "", "", "yes"])
             with patch.object(local, "_SYSTEM", local._SYSTEM - {"/tmp"}), \
                     patch.object(local, "_capacity", return_value={}):
                 config = setup_storage.ensure_site_config(site, input_fn=answers, output_fn=lambda _: None, runner=host)

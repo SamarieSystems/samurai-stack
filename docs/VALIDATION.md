@@ -3,7 +3,43 @@
 The dated sections record measured results for each release candidate. They
 do not claim that every provider, device or deployment has been tested.
 
-## 0.2.0 release candidate
+## 0.2.0-rc.2: Compose naming and private remote access
+
+October 25, 2026. The same isolated Debian 13 disposable VM tested a new custom
+management project, using previously inspected immutable image-cache entries.
+No household services or friend installation were changed by these tests.
+
+- The actual generated systemd unit retained its numeric stage ID while
+  Compose, the stage directory and container labels used `friend-tools`.
+  Authenticated Dockge discovery returned exactly that managed project and
+  both healthy services. Repeat apply retained the container IDs and start
+  timestamps. A subsequent attempted rename was refused without changing
+  containers or the saved stage configuration. The test services were stopped
+  and disabled afterward; their application data and containers were retained.
+- The naming review found and fixed unit-only recovery inventing a numbered
+  project, a fresh-cleanup collision with another stage's old numbered default,
+  and an advanced-CLI rename when runtime snapshots were missing. Canonical
+  identity, exact owned systemd directives and runtime snapshots are checked
+  independently. Legacy absent/empty name maps retain their exact registry
+  identity. Unreadable identity fails closed with an actionable sudo message.
+- All 749 tests completed successfully on Windows with 44 platform/runtime
+  skips. In Linux, the root run had 13 explicit skips and the ordinary-account
+  run had 12. Eleven guest skips need Git, which the offline guest lacks; the
+  remaining skips depend on which account can execute the permission/elevation
+  case. The real ordinary-user permission-denial regression ran successfully.
+  The first Linux runs exposed test fixtures reading the lab's real private
+  registry; those fixtures now use isolated temporary identity roots.
+- All 21 real Compose parser scenarios passed, including custom-named media,
+  torrent, management, photo and music sets. The public source hygiene audit
+  scanned 116 files with zero findings. The private guest had one additional
+  retained test helper, which was not part of the public release source.
+
+The private remote-access guide describes LAN-bound application ports and SSH
+forwarding over Tailscale. No automatic public exposure or migration of existing
+project names was added. The commercial-provider and independent commissioning
+gates below still apply to final 0.2.0.
+
+## 0.2.0-rc.1
 
 October 25, 2026. The core acceptance work runs inside the same owned,
 isolated CPU-only Debian 13 VM, with 2 vCPUs and 3 GiB RAM. Existing household

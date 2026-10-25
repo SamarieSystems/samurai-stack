@@ -9,7 +9,7 @@ import re
 import stat
 import uuid
 
-from . import engine, installation_registry as registry, storage
+from . import naming, engine, installation_registry as registry, storage
 from .safety import SafetyError, no_symlinks, private_read, run, validate_config, write_json
 
 
@@ -203,7 +203,7 @@ def _no_containers(c, runner, unit_root=registry.UNIT_ROOT):
     if not context.startswith("unix://"):
         raise SafetyError("Storage correction requires the local default Docker context.")
     filters = ["label=systems.samarie.deployment=" + c["deployment_id"]]
-    filters.extend("label=com.docker.compose.project=" + c["deployment_name"] + "-" + str(stage) for stage in (2, 3, 4, 5, 6))
+    filters.extend("label=com.docker.compose.project=" + naming.project_name(c, stage) for stage in (2, 3, 4, 5, 6))
     for value in filters:
         if engine.docker(runner, "ps", "--all", "--filter", value, "--format", "{{.ID}}").stdout.strip():
             raise SafetyError("Existing Docker containers still use this project or identity. Storage correction does not repoint existing applications.")

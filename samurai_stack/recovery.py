@@ -183,13 +183,19 @@ def _deployment_candidates(containers, units):
     for unit in units:
         item = deployments.setdefault(unit["deployment_id"], {"deployment_id": unit["deployment_id"], "projects": set(),
             "install_roots": set(), "data_roots": set(), "candidate_configs": set(), "running_missing_appdata": False})
-        project = unit["unit"][len("samurai-"):-len(".service")]
-        item["projects"].add(project)
+        # Unit IDs stay numeric even when the Compose project is named. The
+        # guarded stage directory locates that project; using the unit's name
+        # would invent a second project and lose its application-root clue.
+        stage_projects = set()
         item["candidate_configs"].update(row["path"] for row in unit["config_candidates"])
         for row in unit["config_candidates"]:
             path = PurePosixPath(row["path"])
-            if path.name == "site.json" and path.parent.name == project and path.parent.parent.name == "stages":
+            if path.name == "site.json" and _name(path.parent.name) and path.parent.parent.name == "stages":
+                stage_projects.add(path.parent.name)
                 item["install_roots"].add(str(path.parent.parent.parent))
+        # Legacy units may reference the shared install-root/site.json instead
+        # of a per-stage path. Keep their historical numbered project clue.
+        item["projects"].update(stage_projects or {unit["unit"][len("samurai-"):-len(".service")]})
     result = []
     for value in deployments.values():
         for root in value["install_roots"]:

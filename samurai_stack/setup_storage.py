@@ -133,6 +133,26 @@ def _media_id(input_fn, output_fn, label):
         output_fn("Use a non-root numeric ID, usually 1000. Root/0 is not supported.")
 
 
+def _compose_names(config, input_fn, output_fn):
+    from . import naming
+    defaults = naming.default_projects(config['deployment_name'])
+    labels = {'2': 'Media applications', '3': 'VPN and torrents', '4': 'Management',
+              '5': 'Photos (if enabled later)', '6': 'Music (if enabled later)'}
+    output_fn('Choose the Compose stack names shown in Dockge. Enter keeps each readable default.')
+    selected = {}
+    for stage, default in defaults.items():
+        while True:
+            value = _ask(input_fn, labels[stage] + ' stack name', default)
+            try:
+                naming.validate_projects(dict(config, compose_projects={**selected, stage: value}))
+            except SafetyError as exc:
+                output_fn(str(exc))
+                continue
+            selected[stage] = value
+            break
+    config['compose_projects'] = selected
+
+
 def _nas_server(value):
     if not value or len(value) > 253:
         raise SafetyError("Enter the NAS LAN IPv4 address or its DNS hostname, without http:// or a path.")
@@ -400,6 +420,7 @@ def ensure_site_config(config_path="site.json", *, input_fn=input, output_fn=pri
     config["pgid"] = _media_id(input_fn, output_fn, "Media group ID (GID)")
     config["features"].update({"photos": False, "music": False, "dashboard": False, "music_assistant": False})
     config["hardware"]["acceleration"] = "cpu"
+    _compose_names(config, input_fn, output_fn)
     validate_config(config)
     # Confirm that application state itself is local and not another shared mount.
     app_mount = storage.mount_identity(config["install_root"], runner)
@@ -407,6 +428,7 @@ def ensure_site_config(config_path="site.json", *, input_fn=input, output_fn=pri
         raise SafetyError("The app/config directory must be on local ext4/XFS/Btrfs/ZFS storage. NAS databases are not supported.")
     output_fn("Review: " + config["deployment_name"] + " at " + address + ", " + method + ", CPU playback.")
     output_fn("Apps: " + config["install_root"] + "; media: " + config["storage"]["data_root"])
+    output_fn('Compose stacks: ' + ', '.join(config['compose_projects'].values()))
     mount = config['storage']['expected_mount']
     output_fn("Backing storage: " + mount['source'] + " mounted at " + mount['target'] + " (" + mount['fstype'] + ")")
     output_fn(f"Media identity: {config['puid']}:{config['pgid']}. Photos/music remain off until their later setup parts.")

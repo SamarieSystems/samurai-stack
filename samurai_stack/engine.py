@@ -21,7 +21,7 @@ import urllib.parse
 import http.cookiejar
 import xml.etree.ElementTree as ET
 
-from . import __version__, storage
+from . import __version__, storage, naming
 from .safety import SafetyError, atomic_write, contained, digest, no_symlinks, private_read, run, validate_config, write_json
 
 ROLES = {2: "media", 3: "torrent", 4: "management", 5: "photos", 6: "music"}
@@ -77,7 +77,7 @@ def host_identity():
 
 
 def stage_path(c, stage):
-    return Path(c["install_root"]) / "stages" / f"{c['deployment_name']}-{stage}"
+    return Path(c["install_root"]) / "stages" / naming.project_name(c, stage)
 
 
 def compose_path(c, stage):
@@ -166,7 +166,7 @@ def recipe(c, stage, *, use_lock=True):
         service["restart"] = "no"
         service.setdefault("labels", {})["systems.samarie.deployment"] = c["deployment_id"]
         service["labels"]["systems.samarie.stage"] = str(stage)
-    document["name"] = f"{c['deployment_name']}-{stage}"
+    document["name"] = naming.project_name(c, stage)
     if use_lock:
         locks = read_lock(c, stage)
         for service in document.get("services", {}).values():
@@ -179,6 +179,7 @@ def recipe(c, stage, *, use_lock=True):
 def plan(c, stage, *, offline=False, runner=run):
     validate_config(c)
     stage_allowed(c, stage)
+    naming.check_installed_names(c)
     host = {"offline": True} if offline else preflight(c, stage, runner)
     path = compose_path(c, stage)
     no_symlinks(path)
@@ -216,6 +217,7 @@ def _new_directory(path, *, mode=0o700):
 
 
 def initialize_install(c):
+    naming.check_installed_names(c)
     root = no_symlinks(c["install_root"])
     marker = root / ".samurai-install.json"
     if marker.exists():
@@ -451,7 +453,7 @@ def pin_images(c, stage, runner=run):
 
 
 def compose_args(c, stage):
-    return ["compose", "--project-name", f"{c['deployment_name']}-{stage}", "--file", str(compose_path(c, stage))]
+    return ["compose", "--project-name", naming.project_name(c, stage), "--file", str(compose_path(c, stage))]
 
 
 def service_health(c, stage, runner=run):
@@ -561,8 +563,9 @@ def _check_existing_appdata(rows):
 
 def project_conflicts(c, stage, runner=run):
     """Inspect only selected fields; return conflicts without reading app data."""
-    project = f"{c['deployment_name']}-{stage}"
-    ids = docker(runner, "ps", "--all", "--filter", f"label=com.docker.compose.project={c['deployment_name']}-{stage}", "--format", "{{.ID}}").stdout.split()
+    naming.check_installed_names(c)
+    project = naming.project_name(c, stage)
+    ids = docker(runner, "ps", "--all", "--filter", "label=com.docker.compose.project=" + project, "--format", "{{.ID}}").stdout.split()
     if not ids:
         return None
     if len(ids) > 256 or any(not re.fullmatch(r"[a-fA-F0-9]{12,64}", value) for value in ids):
@@ -624,6 +627,7 @@ def torrent_network_proof(c, runner=run):
 
 
 def runtime_files(c, stage):
+    naming.check_installed_names(c)
     root = Path(c["install_root"])
     # Standalone guard runs before each systemd start, independently of the checkout.
     guard_source = Path(__file__).with_name("runtime_guard.py").read_text()

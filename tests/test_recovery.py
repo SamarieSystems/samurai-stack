@@ -132,6 +132,44 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result["containers"], [])
         self.assertTrue(result["warnings"])
 
+    def test_named_project_is_recovered_from_numeric_unit_without_docker(self):
+        runner = Runner()
+        runner.context = ""
+        with tempfile.TemporaryDirectory() as directory:
+            unit = Path(directory) / "samurai-example-4.service"
+            unit.write_text("# Managed by Samurai Stack: " + OLD + "\n[Service]\n"
+                "ExecStartPre=/usr/bin/python3 /opt/samurai/runtime_guard.py /opt/samurai/stages/house-tools/site.json 4\n")
+            result = self.inspect(runner, directory)
+        deployment = result["deployments"][0]
+        self.assertEqual(deployment["projects"], ["house-tools"])
+        self.assertEqual(deployment["install_roots"], [absent("/opt/samurai")])
+        self.assertEqual(deployment["candidate_configs"], [absent("/opt/samurai/stages/house-tools/site.json")])
+
+    def test_named_container_and_numeric_unit_do_not_invent_a_second_project(self):
+        runner = Runner()
+        runner.containers[CONTAINER].update(project="house-media", working_dir="/opt/samurai/stages/house-media",
+            compose_files="/opt/samurai/stages/house-media/compose.yaml")
+        with tempfile.TemporaryDirectory() as directory:
+            unit = Path(directory) / "samurai-example-2.service"
+            unit.write_text("# Managed by Samurai Stack: " + OLD + "\n[Service]\n"
+                "ExecStartPre=/usr/bin/python3 /opt/samurai/runtime_guard.py /opt/samurai/stages/house-media/site.json 2\n")
+            result = self.inspect(runner, directory)
+        deployment = result["deployments"][0]
+        self.assertEqual(deployment["projects"], ["house-media"])
+        self.assertEqual(deployment["candidate_configs"], [absent("/opt/samurai/stages/house-media/site.json")])
+
+    def test_legacy_shared_config_retains_numbered_project_clue(self):
+        runner = Runner()
+        runner.context = ""
+        with tempfile.TemporaryDirectory() as directory:
+            unit = Path(directory) / "samurai-example-2.service"
+            unit.write_text("# Managed by Samurai Stack: " + OLD + "\n[Service]\n"
+                "ExecStartPre=/usr/bin/python3 /opt/samurai/runtime_guard.py /opt/samurai/site.json 2\n")
+            result = self.inspect(runner, directory)
+        deployment = result["deployments"][0]
+        self.assertEqual(deployment["projects"], ["example-2"])
+        self.assertEqual(deployment["candidate_configs"], [absent("/opt/samurai/site.json")])
+
     def test_invalid_ids_never_become_inspect_arguments(self):
         runner = Runner()
         runner.ids += "--help\n../../private\n"

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+from . import naming
+
 
 # Immutable multi-platform indexes validated 2026-10-24. See docs/IMAGES.md.
 IMAGES = {
@@ -308,7 +310,7 @@ def render_stage(config: dict, stage: int) -> dict:
     if stage not in renderers:
         raise ValueError("Compose stages are 2 through 6")
     services = renderers[stage](config)
-    project = f"{config['deployment_name']}-{stage}"
+    project = naming.project_name(config, stage)
     result = {"name": project, "services": services}
     for service in environment_secrets(config, stage):
         services[service]["env_file"] = [_path(_root(config), "stages", project, service + ".env")]

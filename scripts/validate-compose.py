@@ -10,7 +10,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from samurai_stack.cli import default_config
-from samurai_stack import catalog
+from samurai_stack import catalog, naming
 
 
 def scenarios():
@@ -42,6 +42,11 @@ def scenarios():
         c = deepcopy(basic)
         c['features'].update(music=True, music_assistant=music_assistant)
         yield 'music-' + str(music_assistant), c, 6
+    for stage in range(2, 7):
+        c = deepcopy(basic)
+        c['compose_projects'] = naming.default_projects(c['deployment_name'])
+        c['features'].update(photos=True, music=True)
+        yield 'named-' + naming.PROJECT_ROLES[stage], c, stage
 
 
 def main():
@@ -63,7 +68,7 @@ def main():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('synthetic-fixture-only\n')
             for service, fields in catalog.environment_secrets(config, stage).items():
-                path = Path(config['install_root']) / 'stages' / f"{config['deployment_name']}-{stage}" / (service + '.env')
+                path = Path(config['install_root']) / 'stages' / naming.project_name(config, stage) / (service + '.env')
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(''.join(k + '=synthetic-fixture-only\n' for k in fields))
             compose = project / 'compose.yaml'

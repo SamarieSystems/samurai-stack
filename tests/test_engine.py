@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 import uuid
 
-from samurai_stack import catalog, engine, integrations
+from samurai_stack import catalog, engine, installation_registry, integrations
 from samurai_stack.cli import default_config
 from samurai_stack.safety import SafetyError, digest
 
@@ -22,6 +22,8 @@ class EngineTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.enterContext(mock.patch.object(installation_registry, "REGISTRY_ROOT", self.root / "registry"))
+        self.enterContext(mock.patch.object(engine.naming, "UNIT_ROOT", self.root / "units"))
         self.c = default_config("192.168.50.20")
         unique = "/tmp/samurai-test-" + uuid.uuid4().hex
         self.c["install_root"] = unique + "/application"
@@ -317,7 +319,13 @@ class EngineTests(unittest.TestCase):
 
 class ProjectCollisionTests(unittest.TestCase):
     def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
         self.c = default_config("192.168.50.20")
+        self.c["install_root"] = str(self.root / "application")
+        self.enterContext(mock.patch.object(installation_registry, "REGISTRY_ROOT", self.root / "registry"))
+        self.enterContext(mock.patch.object(engine.naming, "UNIT_ROOT", self.root / "units"))
         self.old_id = str(uuid.uuid4())
         self.calls = []
         self.rows = [{"id": "a" * 64, "name": "/homelab-2-bazarr-1", "status": "running",
@@ -401,6 +409,7 @@ class ProjectCollisionTests(unittest.TestCase):
         old = types.SimpleNamespace(st_mode=stat.S_IFDIR, st_dev=1, st_ino=3)
         for live, success in ((host, True), (old, False)):
             with self.subTest(matching=success), mock.patch.object(engine.sys, "platform", "linux"), \
+                 mock.patch.object(engine.naming, "check_installed_names"), \
                  mock.patch.object(engine, "no_symlinks", return_value=mock.Mock(stat=mock.Mock(return_value=host))), \
                  mock.patch.object(engine.os, "stat", return_value=live) as inspected:
                 if success:
@@ -414,6 +423,7 @@ class ProjectCollisionTests(unittest.TestCase):
         self.rows[0].update(deployment_id=self.c["deployment_id"], pid=12345)
         host = types.SimpleNamespace(st_mode=stat.S_IFDIR, st_dev=1, st_ino=2)
         with mock.patch.object(engine.sys, "platform", "linux"), \
+             mock.patch.object(engine.naming, "check_installed_names"), \
              mock.patch.object(engine, "no_symlinks", return_value=mock.Mock(stat=mock.Mock(return_value=host))), \
              mock.patch.object(engine.os, "stat", side_effect=PermissionError()):
             with self.assertRaisesRegex(SafetyError, "appdata path"):

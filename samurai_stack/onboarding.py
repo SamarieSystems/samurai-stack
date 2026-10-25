@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import catalog, engine
+from . import catalog, engine, naming
 from .integrations import jellyfin_headers
 from .safety import SafetyError, atomic_write, no_symlinks, private_read, run, validate_config, write_json
 
@@ -140,7 +140,7 @@ def reserve_fresh_apps(c, stage=2, *, runner=run):
     if existing is not None:
         return existing
     containers = engine.docker(runner, "ps", "--all", "--filter",
-        f"label=com.docker.compose.project={c['deployment_name']}-2", "--format", "{{.ID}}").stdout.strip()
+        "label=com.docker.compose.project=" + naming.project_name(c, 2), "--format", "{{.ID}}").stdout.strip()
     legacy = bool(containers) or no_symlinks(engine.compose_path(c, 2)).exists()
     receipt = {"schema_version": 1, "deployment_id": c["deployment_id"],
                "host_id": engine.host_identity(), "bind_address": c["bind_address"], "apps": {}}
@@ -189,14 +189,14 @@ def check_targets(c, apps, runner=run):
         if app not in SUPPORTED:
             raise SafetyError("Unsupported application account target")
         ids = engine.docker(runner, "ps", "--filter", "status=running", "--filter",
-            "label=com.docker.compose.project=" + c["deployment_name"] + "-2", "--filter",
+            "label=com.docker.compose.project=" + naming.project_name(c, 2), "--filter",
             "label=com.docker.compose.service=" + app, "--format", "{{.ID}}").stdout.split()
         if len(ids) != 1:
             raise SafetyError("An account target is not a unique running deployment service")
         labels = codec.loads(engine.docker(runner, "inspect", ids[0], "--format", "{{json .Config.Labels}}").stdout)
         if (not isinstance(labels, dict) or labels.get("systems.samarie.deployment") != c["deployment_id"]
                 or labels.get("systems.samarie.stage") != "2"
-                or labels.get("com.docker.compose.project") != c["deployment_name"] + "-2"
+                or labels.get("com.docker.compose.project") != naming.project_name(c, 2)
                 or labels.get("com.docker.compose.service") != app):
             raise SafetyError("Account target container belongs to another installation")
         ports = codec.loads(engine.docker(runner, "inspect", ids[0], "--format", "{{json .NetworkSettings.Ports}}").stdout)

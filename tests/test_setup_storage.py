@@ -95,6 +95,26 @@ class StorageDiscovery(unittest.TestCase):
         self.assertEqual(setup._media_id(read, lambda _: None, "UID"), 1001)
         self.assertEqual(len(read.prompts), 3)
 
+    def test_compose_names_offer_role_defaults_and_allow_custom_names(self):
+        config = default_config()
+        answers = InputAnswers(["friends-media", "", "ops", "", ""])
+        setup._compose_names(config, answers, lambda _: None)
+        self.assertEqual(config["compose_projects"], {
+            "2": "friends-media", "3": "homelab-torrents", "4": "ops",
+            "5": "homelab-photos", "6": "homelab-music",
+        })
+        self.assertEqual(len(answers.prompts), 5)
+
+    def test_compose_names_reprompt_invalid_or_duplicate_without_losing_choices(self):
+        config = default_config()
+        answers = InputAnswers(["../invalid", "media", "media", "torrents", "", "", ""])
+        output = []
+        setup._compose_names(config, answers, output.append)
+        self.assertEqual(config["compose_projects"]["2"], "media")
+        self.assertEqual(config["compose_projects"]["3"], "torrents")
+        self.assertTrue(any("lowercase" in line for line in output))
+        self.assertTrue(any("different project name" in line for line in output))
+
     def test_existing_site_is_reused_without_probes_prompts_or_writes(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "site.json"
@@ -205,13 +225,15 @@ class GuidedFilesystem(unittest.TestCase):
         app = self.root / "app"
         data = self.root / "data"
         path = self.root / "site.json"
-        answers = InputAnswers(["", str(app), "Etc/UTC", "", "2", str(data), "", "", "yes"])
+        answers = InputAnswers(["", str(app), "Etc/UTC", "", "2", str(data), "", "", "", "", "", "", "", "yes"])
         config = setup.ensure_site_config(path, input_fn=answers, output_fn=self.output.append, runner=self.host, fstab_path=self.fstab)
         self.assertEqual(config["role"], "all")
         self.assertEqual(config["hardware"]["acceleration"], "cpu")
         self.assertEqual(config["downloads"]["prefer"], "torrents")
         self.assertFalse(config["features"]["usenet"])
         self.assertTrue(config["features"]["torrents"])
+        self.assertEqual('homelab-media', config['compose_projects']['2'])
+        self.assertEqual('homelab-torrents', config['compose_projects']['3'])
         self.assertFalse(config["features"]["photos"] or config["features"]["music"])
         self.assertEqual(config["storage"]["expected_mount"]["source"], "/dev/fixture-root")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
@@ -221,7 +243,7 @@ class GuidedFilesystem(unittest.TestCase):
     def test_declined_config_writes_no_file_or_data_tree(self):
         self.host.interfaces = self.host.interfaces[1:2]
         app, data, path = self.root / "app", self.root / "data", self.root / "site.json"
-        answers = InputAnswers(["", str(app), "Etc/UTC", "", "2", str(data), "", "", "no"])
+        answers = InputAnswers(["", str(app), "Etc/UTC", "", "2", str(data), "", "", "", "", "", "", "", "no"])
         with self.assertRaisesRegex(SafetyError, "without saving"):
             setup.ensure_site_config(path, input_fn=answers, output_fn=self.output.append, runner=self.host)
         self.assertFalse(path.exists() or data.exists() or app.exists())
@@ -234,7 +256,7 @@ class GuidedFilesystem(unittest.TestCase):
         self.host.rows.append({"target": str(nas), "source": "nas.example:/export/media", "fstype": "nfs4", "options": "rw,hard"})
         self.fstab.write_text(self.original + f"nas.example:/export/media {nas} nfs4 rw,hard,_netdev 0 0\n")
         before = self.fstab.read_text()
-        answers = InputAnswers(["", str(app), "Etc/UTC", "", "1", "1", str(data), "", "", "yes"])
+        answers = InputAnswers(["", str(app), "Etc/UTC", "", "1", "1", str(data), "", "", "", "", "", "", "", "yes"])
         config = setup.ensure_site_config(path, input_fn=answers, output_fn=self.output.append, runner=self.host, fstab_path=self.fstab)
         self.assertEqual(config["storage"]["expected_mount"], {"target": str(nas), "source": "nas.example:/export/media", "fstype": "nfs4"})
         self.assertFalse(any("NAS address" in prompt for prompt in answers.prompts))

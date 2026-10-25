@@ -14,7 +14,7 @@ import shlex
 import shutil
 import uuid
 
-from . import installation_registry as registry, retired_units
+from . import installation_registry as registry, retired_units, naming
 from .cli import default_config
 from .safety import SafetyError, no_symlinks, run, validate_config, write_json
 
@@ -62,6 +62,24 @@ def _unit_candidates(unit_root):
             raise SafetyError("An old Samurai service has an unrecognized guard command; it was retained.") from None
         c = default_config("127.0.0.1")
         c.update(deployment_name=match[1], install_root=str(guard.parent))
+        # The numeric service ID is stable even for a custom Compose name.
+        # Recover that one name only from the guarded stage path, then prove
+        # every generated directive exactly before retiring the empty unit.
+        site = PurePosixPath(argv[2])
+        if (site.name != "site.json" or site.parent.parent != guard.parent / "stages"):
+            raise SafetyError("An old Samurai service has an unrecognized stage path; it was retained.")
+        if site.parent.name != naming.project_name(c, int(match[2])):
+            c["compose_projects"] = {match[2]: site.parent.name}
+            # Other stages are unknown here, not restored wizard choices. A
+            # valid old map may have assigned this stage another stage's old
+            # numbered name. Avoid inventing a collision with that unknown
+            # stage's fallback; these placeholders are never deployed/saved.
+            for other in naming.PROJECT_ROLES:
+                if other != int(match[2]) and naming.project_name(c, other) == site.parent.name:
+                    placeholder = "samurai-unclaimed-stage-" + str(other)
+                    if placeholder == site.parent.name:
+                        placeholder += "-unused"
+                    c["compose_projects"][str(other)] = placeholder
         validate_config(c)
         old = retired_units._generated(c, int(match[2]), text)
         if old is None:
@@ -108,6 +126,8 @@ def _entry_config(path):
         c = default_config("127.0.0.1")
         for key in ("deployment_id", "deployment_name", "install_root", "puid", "pgid", "role"):
             c[key] = identity[key]
+        if identity.get("compose_projects"):
+            c["compose_projects"] = identity["compose_projects"]
         c["storage"].update(data_root=identity["data_root"], mode=identity["storage_mode"],
                             expected_mount=identity["expected_mount"])
         validate_config(c)
@@ -143,13 +163,13 @@ def _no_containers(units, entries, runner, available):
     if found:
         raise SafetyError("Samurai containers still exist, including stopped containers. Fresh setup will not remove or take over them.")
     for row in units:
-        retired_units._empty(runner, row["config"]["deployment_name"] + "-" + str(row["stage"]), row["old_id"])
+        retired_units._empty(runner, naming.project_name(row["config"], row["stage"]), row["old_id"])
     for row in entries:
         c = row["config"]
         if c is None:
             continue
         for stage in range(2, 7):
-            retired_units._empty(runner, c["deployment_name"] + "-" + str(stage), c["deployment_id"])
+            retired_units._empty(runner, naming.project_name(c, stage), c["deployment_id"])
 
 
 def _verify_snapshot(units, entries, runner, available):

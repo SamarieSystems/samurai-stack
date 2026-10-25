@@ -14,6 +14,7 @@ import stat
 import sys
 import uuid
 
+from . import naming
 from .safety import SafetyError, absolute_path, no_symlinks, run, validate_config
 
 UNIT_ROOT = Path('/etc/systemd/system')
@@ -67,7 +68,7 @@ def _generated(c, stage, text):
     if old == c['deployment_id']:
         return None
     root = c['install_root']
-    project = c['deployment_name'] + '-' + str(stage)
+    project = naming.project_name(c, stage)
     folder = root + '/stages/' + project
     command = '/usr/bin/docker --context default compose --project-name ' + project + ' --file ' + folder + '/compose.yaml'
     expected = {
@@ -180,8 +181,8 @@ def retire_conflicting(c, stage, *, runner=run, unit_root=UNIT_ROOT, archive_roo
     _owner(info)
     if not stat.S_ISDIR(info.st_mode) or (os.name == 'posix' and info.st_mode & 0o022):
         raise SafetyError('The system service directory has unsafe ownership or permissions.')
-    project = c['deployment_name'] + '-' + str(stage)
-    unit = no_symlinks(unit_root / ('samurai-' + project + '.service'))
+    project = naming.project_name(c, stage)
+    unit = no_symlinks(unit_root / ('samurai-' + c['deployment_name'] + '-' + str(stage) + '.service'))
     if not unit.exists():
         return None
     encoded, text, original = _unit(unit)

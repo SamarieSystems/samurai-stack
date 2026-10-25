@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from . import catalog, engine, integrations
+from . import catalog, engine, integrations, naming
 from .safety import SafetyError, load_config, no_symlinks, private_read, validate_config
 
 
@@ -31,7 +31,7 @@ def check_targets(config, runner):
     engine.check_docker(runner)
     for service in ('sonarr', 'radarr'):
         ids = engine.docker(runner, 'ps', '--filter', 'status=running',
-                            '--filter', 'label=com.docker.compose.project=' + config['deployment_name'] + '-2',
+                            '--filter', 'label=com.docker.compose.project=' + naming.project_name(config, 2),
                             '--filter', 'label=com.docker.compose.service=' + service,
                             '--format', '{{.ID}}').stdout.split()
         if len(ids) != 1:

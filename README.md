@@ -10,7 +10,7 @@ Build a private media server with a guided installer. Pick a step, review what i
 ## Start here
 
 Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
-`SHA256SUMS` from the [release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1).
+`SHA256SUMS` from the [release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2).
 Copy both files into the same directory in the VM, open a terminal there, then run:
 
 ```sh
@@ -40,7 +40,7 @@ checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.sh` from the
-[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1),
+[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.2),
 check its supplied `SHA256SUMS`, then run as root:
 
 ```sh

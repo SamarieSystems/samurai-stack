@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0-rc.2 - 2026-10-25
+
+- Ask new guided installations for meaningful Compose project names shown in
+  Dockge. Use the same identity in generated Compose files, stage directories,
+  systemd commands, ownership checks, account wiring and recovery. Existing
+  numbered projects retain their identity; changing an installed name is refused.
+- Document private remote access to applications bound to a VM's LAN address,
+  including SSH browser forwarding and the distinction between direct Tailscale
+  node access and advertised subnet routes.
+
 ## 0.2.0-rc.1 - 2026-10-25
 
 - Standardize operator entry points on Bash: source `./setup` and `./stack`,

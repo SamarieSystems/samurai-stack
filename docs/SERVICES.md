@@ -198,8 +198,15 @@ other VMs. Run stage 4 on each host where local container logs and terminals are
 wanted. Kuma can monitor reachable endpoints on other hosts; remote Docker
 daemon exposure is not configured.
 
+New guided installations ask for the Compose stack names. Suggested names are
+`homelab-media`, `homelab-torrents`, `homelab-management`, `homelab-photos` and
+`homelab-music`, with your chosen installation prefix in place of `homelab`.
+Each set needs a different lowercase name. Existing sites retain their exact
+numbered names unless they were created with explicit `compose_projects` names.
+Updating the installer does not rename existing projects.
+
 Each Compose directory uses the exact project name, for example
-`install_root/stages/homelab-2/compose.yaml` with `name: homelab-2`. Dockge merges
+`install_root/stages/homelab-media/compose.yaml` with `name: homelab-media`. Dockge merges
 its directory inventory with Docker's project names; differing names create
 duplicate UI entries and incorrect managed/status indicators. Its logs and
 container terminals use Compose in that directory, so they select the same
@@ -207,6 +214,14 @@ project. Private per-service environment files stay inside that project
 directory where Dockge's Compose client can read them. File-based secret sources
 and absolute bind sources are mounted by the host Docker daemon; Dockge does not
 need a separate mount of the full secrets directory.
+
+Project names are installation identities, not independent display aliases.
+The generated systemd command also passes `--project-name`, which takes
+precedence over YAML's `name:`. Editing only that field does not rename existing
+containers. The installer refuses an installed project's name change instead
+of silently creating replacement containers. Keep its saved configuration and
+use the original project identity until a deliberate migration is available.
+Numeric engine stages and systemd unit names stay unchanged by custom naming.
 
 The toolkit's systemd units own guarded startup and shutdown. Use `apply` for
 toolkit changes and `systemctl` on `samurai-<deployment_name>-<stage>.service`

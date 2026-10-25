@@ -199,6 +199,12 @@ class OnboardingTests(unittest.TestCase):
     def reserve(self):
         return accounts.reserve_fresh_apps(self.c, runner=self.no_containers)
 
+    def test_reservation_queries_the_custom_media_project_before_classifying_freshness(self):
+        self.c['compose_projects'] = {'2': 'house-media'}
+        receipt = self.reserve()
+        self.assertTrue(receipt['apps']['jellyfin']['eligible'])
+        self.assertIn('label=com.docker.compose.project=house-media', self.no_containers.call_args.args[0])
+
     def onboard(self, credentials=CREDS):
         with mock.patch.object(accounts, "check_targets"):
             return accounts.onboarding(self.c, credentials, request=self.vendor,
@@ -591,6 +597,22 @@ class TargetProofTests(unittest.TestCase):
             accounts.check_targets(self.c, accounts.SUPPORTED, self.runner)
         docker.assert_called_once_with(self.runner)
         self.assertEqual(self.checked, list(accounts.SUPPORTED))
+
+    def test_custom_media_project_is_checked_in_both_query_and_live_labels(self):
+        self.c['compose_projects'] = {'2': 'house-media'}
+        self.labels['com.docker.compose.project'] = 'house-media'
+        queries = []
+        def runner(argv, **kwargs):
+            if 'ps' in argv:
+                queries.append(argv)
+                self.assertIn('label=com.docker.compose.project=house-media', argv)
+            return self.runner(argv, **kwargs)
+        with mock.patch.object(engine, 'check_docker'):
+            accounts.check_targets(self.c, ['jellyfin', 'sonarr'], runner)
+        self.assertEqual(len(queries), 2)
+        self.labels['com.docker.compose.project'] = 'homelab-2'
+        with mock.patch.object(engine, 'check_docker'), self.assertRaisesRegex(SafetyError, 'another installation'):
+            accounts.check_targets(self.c, ['jellyfin'], runner)
 
     def test_stale_address_foreign_labels_wrong_port_or_foreign_mount_fail(self):
         for field in ("missing_ip", "foreign_labels", "wrong_port", "wrong_mount"):

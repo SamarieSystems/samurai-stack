@@ -16,6 +16,7 @@ from test_integrations import VendorModel, secrets
 class OwnedTargets:
     def __init__(self, config):
         self.config = config
+        self.project = config['deployment_name'] + '-2'
         self.calls = []
         self.interfaces = [{'addr_info': [{'local': config['bind_address']}]}]
         self.endpoint = 'unix:///var/run/docker.sock'
@@ -42,7 +43,7 @@ class OwnedTargets:
             elif args[:1] == ['info']:
                 value = 'linux'
             elif args[:1] == ['ps']:
-                if 'status=running' not in args or 'label=com.docker.compose.project=' + self.config['deployment_name'] + '-2' not in args:
+                if 'status=running' not in args or 'label=com.docker.compose.project=' + self.project not in args:
                     raise AssertionError('Repair did not constrain its container query')
                 service = next(s for s in self.ids if 'label=com.docker.compose.service=' + s in args)
                 value = '\n'.join(self.ids[service])
@@ -74,6 +75,14 @@ class NarrowHardlinkRepairTests(unittest.TestCase):
 
     def run_repair(self, **kwargs):
         return hardlinks.run(self.c, runner=self.targets, request=self.vendor, **kwargs)
+
+    def test_custom_media_project_keeps_narrow_owner_and_port_checks(self):
+        self.c['compose_projects'] = {'2': 'house-media'}
+        self.targets.project = 'house-media'
+        self.assertEqual(self.run_repair()['status'], 'verified')
+        queries = [argv for argv in self.targets.calls if argv[3:4] == ['ps']]
+        self.assertEqual(len(queries), 2)
+        self.assertTrue(all('label=com.docker.compose.project=house-media' in argv for argv in queries))
 
     def test_readonly_checks_only_two_running_owned_apps_and_never_locks_or_writes(self):
         with mock.patch.object(engine, 'deployment_lock') as lock:

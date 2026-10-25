@@ -17,7 +17,7 @@ import stat
 import sys
 import uuid
 
-from . import storage
+from . import storage, naming
 from .safety import SafetyError, digest, no_symlinks, run, validate_config, write_json
 
 REGISTRY_ROOT = Path('/var/lib/samurai-stack/installations')
@@ -127,14 +127,23 @@ def _config(path):
 
 
 def _identity(c):
-    return {'deployment_id': _uuid(c['deployment_id']), 'deployment_name': c['deployment_name'],
+    identity = {'deployment_id': _uuid(c['deployment_id']), 'deployment_name': c['deployment_name'],
             'install_root': c['install_root'], 'data_root': c['storage']['data_root'],
             'expected_mount': c['storage']['expected_mount'], 'storage_mode': c['storage']['mode'],
             'puid': c['puid'], 'pgid': c['pgid'], 'role': c.get('role', 'all')}
+    # An absent/empty optional map must not alter legacy canonical identities.
+    # Once explicitly reserved, names remain immutable with the installation.
+    if c.get('compose_projects'):
+        identity['compose_projects'] = dict(c['compose_projects'])
+    return identity
 
 
 def _metadata(path, c):
     value = _json(path)
+    saved = value.get('identity', {})
+    if (isinstance(saved, dict) and saved.get('deployment_id') == c['deployment_id']
+            and saved.get('compose_projects', {}) != c.get('compose_projects', {})):
+        raise SafetyError('Compose project names are fixed for this saved installation. Restore its original compose_projects names; renaming existing projects requires a reviewed migration.')
     if (value.get('schema_version') != 1 or value.get('host_id') != host_identity()
             or value.get('identity') != _identity(c)):
         raise SafetyError('Saved installation belongs to another host or a conflicting storage/application identity.')
@@ -271,7 +280,7 @@ def _unit_config(unit, canonical=None):
     else:
         c = _config(path)
     stage = argv[3]
-    expected_parent = Path(c['install_root']) / 'stages' / (c['deployment_name'] + '-' + stage)
+    expected_parent = Path(c['install_root']) / 'stages' / naming.project_name(c, int(stage))
     # Legacy units used the common install-root site.json; retain read-only migration.
     allowed = {expected_parent / 'site.json'}
     if not missing:
