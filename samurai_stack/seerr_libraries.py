@@ -46,8 +46,51 @@ def _settings(r, headers, info):
     return value, _libraries(value.get("libraries"))
 
 
+def _canonical_library(virtual, folders, name, path, collection, kind):
+    """Prove one canonical path/type/real ID, preserving its display name.
+
+    A reserved name pointing elsewhere is still a conflict. Overlapping or
+    mixed locations must never be mistaken for a missing library and cause
+    duplicate registration of an existing collection.
+    """
+    if (not isinstance(virtual, list) or any(not isinstance(row, dict) for row in virtual)
+            or not isinstance(folders, dict) or not isinstance(folders.get("Items"), list)
+            or any(not isinstance(row, dict) for row in folders["Items"])):
+        raise Conflict("Jellyfin library identities could not be verified; no library was changed")
+    named, touching = [], []
+    for row in virtual:
+        locations = row.get("Locations")
+        if not isinstance(locations, list) or any(not isinstance(value, str) for value in locations):
+            raise Conflict("Jellyfin library locations are unknown; no library was changed")
+        if row.get("Name") == name:
+            named.append(row)
+            if locations != [path]:
+                raise Conflict("Deployment-named Jellyfin library points elsewhere; refusing to replace it")
+        if any(value.rstrip("/") == path or value.rstrip("/").startswith(path + "/")
+               or path.startswith(value.rstrip("/") + "/") for value in locations):
+            touching.append(row)
+    if len(named) > 1 or len(touching) > 1:
+        raise Conflict("Canonical Jellyfin library paths are duplicated or overlapping; no library was changed")
+    if not touching:
+        return None
+    row = touching[0]
+    if row["Locations"] != [path]:
+        raise Conflict("Canonical Jellyfin library uses mixed or overlapping locations; no library was changed")
+    identifier = row.get("ItemId")
+    if (not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", identifier)
+            or not _text(row.get("Name"))
+            or row.get("CollectionType", collection) != collection
+            or len([item for item in virtual if item.get("ItemId") == identifier]) != 1):
+        raise Conflict("Canonical Jellyfin library identifier or media type is ambiguous")
+    actual = [item for item in folders["Items"] if item.get("Id") == identifier]
+    if (len(actual) != 1 or actual[0].get("Name") != row["Name"]
+            or actual[0].get("Type") != "CollectionFolder" or actual[0].get("CollectionType") != collection):
+        raise Conflict("Canonical Jellyfin library ID, display metadata or media type differs")
+    return {"id": identifier, "name": row["Name"], "enabled": True, "type": kind}
+
+
 def _managed(r, headers):
-    """Use actual IDs, exact deployment names and paths, never names alone."""
+    """Use canonical paths, collection types and actual IDs, never names alone."""
     base = r.media["jellyfin"]
     virtual = r.call("GET", base + "/Library/VirtualFolders", headers=headers)
     folders = r.call("GET", base + "/Library/MediaFolders", headers=headers)
@@ -72,20 +115,12 @@ def _managed(r, headers):
         ("TV", "/data/library/tv", "tvshows", "show"),
     ):
         name = "Samurai " + r.config["deployment_name"] + " " + suffix
-        matches = [row for row in virtual if row.get("Name") == name]
-        if len(matches) != 1 or matches[0].get("Locations") != [path]:
-            raise Conflict("Managed Jellyfin library name/path differs; no Seerr selection was changed")
-        identifier = matches[0].get("ItemId")
-        if not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", identifier):
-            raise Conflict("Managed Jellyfin library has an unsupported identifier")
-        actual = [row for row in folders["Items"] if row.get("Id") == identifier]
-        if (len(actual) != 1 or actual[0].get("Name") != name
-                or actual[0].get("Type") != "CollectionFolder"
-                or actual[0].get("CollectionType") != collection):
-            raise Conflict("Managed Jellyfin library ID or media type differs; no Seerr selection was changed")
-        if any(row["id"] == identifier for row in desired):
+        matched = _canonical_library(virtual, folders, name, path, collection, kind)
+        if matched is None:
+            raise Conflict("Canonical Jellyfin library is missing; no Seerr selection was changed")
+        if any(row["id"] == matched["id"] for row in desired):
             raise Conflict("Managed Jellyfin library identifiers are duplicated")
-        desired.append({"id": identifier, "name": name, "enabled": True, "type": kind})
+        desired.append(matched)
     return desired, discovered
 
 
@@ -98,8 +133,10 @@ def _merged(current, desired):
         existing = [row for row in proposed if row["id"] == wanted["id"]]
         if existing:
             row = existing[0]
-            if row["name"] != wanted["name"] or row["type"] != wanted["type"]:
+            if row["type"] != wanted["type"]:
                 raise Conflict("Seerr managed library identity differs; no selections were replaced")
+            # Display names may have been customized in either application.
+            # The verified canonical Jellyfin ID/type establishes identity.
             row["enabled"] = True
         else:
             proposed.append(deepcopy(wanted))
@@ -110,13 +147,15 @@ def _by_id(rows):
     return {row["id"]: row for row in rows}
 
 
-def _sync_preview(current, discovered):
+def _sync_preview(current, discovered, desired):
     """Predict the exact public metadata-sync operation before permitting it."""
     live = _by_id(discovered)
     old = _by_id(current)
+    owned = {row["id"] for row in desired}
     for row in current:
         match = live.get(row["id"])
-        if (match is None or match["name"] != row["name"] or match["type"] != row["type"]
+        if (match is None or match["type"] != row["type"]
+                or match["name"] != row["name"] and row["id"] not in owned
                 or set(row) - {"id", "name", "enabled", "type", "lastScan"}):
             raise Conflict("Seerr library discovery would alter an unrelated selection; sync was not started")
     proposed = []
@@ -148,7 +187,7 @@ def _run(r, *, write):
             raise Conflict("Seerr library selections changed during review; retry without replacing them")
         base = r.media["seerr"] + "/api/v1/settings/jellyfin/library"
         if any(row["id"] not in _by_id(current) for row in desired):
-            expected = _sync_preview(current, discovered)
+            expected = _sync_preview(current, discovered, desired)
             r.call("POST", base + "/sync", headers=headers)
             _, saved = _settings(r, headers, info)
             if _by_id(saved) != _by_id(expected):

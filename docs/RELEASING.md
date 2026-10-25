@@ -11,7 +11,7 @@ build; no pip packages, Docker daemon or running applications are needed.
    directory outside the checkout:
 
    ```bash
-   bash scripts/release.sh --tag v0.2.0-rc.3 --output ../samurai-release-rc3
+   bash scripts/release.sh --tag v0.2.0 --output ../samurai-release-v0.2.0
    ```
 
 3. Inspect the result and test the actual generated installer in an isolated

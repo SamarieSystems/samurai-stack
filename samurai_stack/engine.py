@@ -746,6 +746,9 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
                     # guessing from an unauthenticated first-run screen.
                     from .onboarding import reserve_fresh_apps
                     reserve_fresh_apps(c, stage=stage, runner=runner)
+                if stage == 4:
+                    from .management_setup import reserve_fresh
+                    reserve_fresh(c, runner=runner)
                 if stage == 3:
                     seed_qbittorrent(c)
                 env_files(c, stage)

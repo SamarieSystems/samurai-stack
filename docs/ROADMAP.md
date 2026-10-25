@@ -1,53 +1,46 @@
-# Toward 0.2
+# Supported 0.2 scope and next gates
 
-0.2 is the next repeatable-install milestone. A release candidate packages the
-integrated installer for commissioning. The final `v0.2.0` tag waits for the
-supported path to work for someone other than its developer, including recovery
-from a failed step and the provider checks below. A higher version number alone
-does not establish that.
+0.2 is the repeatable-install milestone for the documented private Linux guest
+path. It combines the release candidates with terminal provider intake,
+future-import naming/subtitle policy, storage reserves and management enrollment.
+It does not certify every hardware combination, provider, playback client or
+existing installation. The dated [validation record](VALIDATION.md) distinguishes
+disposable tests from target-machine commissioning.
 
-## Release gates
+## Core evidence
 
-| Gate | Evidence needed |
+| Area | Recorded evidence and boundary |
 | --- | --- |
-| First-run accounts | All seven selected media apps enroll from hidden terminal credential prompts and wire without browser first-user wizards or API-key copying. Jellyfin has separate administrator and restricted viewer logins; Seerr uses those identities. Actual login and permission checks pass. Existing accounts survive retries and upgrades; unconfigured older apps require account-absence proof. Management/optional apps retain their explicit onboarding steps. |
-| Storage selection | Local disks and NFS show the selected mount, source and capacity. A missing media mount prevents startup. Existing collections remain untouched until a separate reviewed import is requested. |
-| Downloads and imports | Sonarr/Radarr hardlink settings read back as enabled. An actual controlled torrent import preserves device and inode across download and library paths. A Usenet import demonstrates an atomic move on the same filesystem. |
-| VPN | A supported commercial-provider profile passes a controlled tunnel interruption and recovery test. The torrent client remains unable to use the ordinary WAN route. A local test VPN is useful development evidence but does not satisfy this provider check. |
-| Recovery | Configuration and application-state backup can be restored to an isolated installation. Resume and source updates preserve deployment identity, credentials, appdata and media. |
-| Hardware and independent rollout | Repeat the core path on CPU-only Debian with local storage and NFS, and torrent-only and Usenet configurations. Record at least one independent operator's clean install and corrected failures. |
+| Media accounts | Earlier disposable runs enrolled all seven selected apps through terminal credentials and verified logins/wiring. Existing accounts are authenticated rather than reset. Jellyfin has a restricted viewer; Seerr uses Jellyfin sign-in. |
+| Management | Fresh actual Dockge/Kuma owners, wrong-password rejection, managed-project discovery and additive TCP monitors passed in an isolated guest. Retry preserved IDs and secrets. Existing owners still need their current credentials; notification delivery is separate. |
+| Storage | Local/NFS checks, actual Starr hardlink and same-filesystem move imports, preserved sentinels and missing-mount cold-boot refusal were recorded in the disposable guest. No partitioning, RAID conversion or automatic collection migration is performed. |
+| Providers | One friend installation completed an official SAB test download, a completed-download import and a controlled Proton tunnel failure/recovery check. No ordinary-WAN fallback occurred. This does not establish line-rate throughput or other VPN providers' behavior. |
+| Recovery | Consistent application-state backup/restore, restored-account identity reauthorization and portable/source resume checks passed. Ordinary setup still refuses replaced or unowned application state. |
+| Hardware | The disposable core runs CPU-only Debian 13. A friend rollout used an existing local media filesystem. Other bootstrap configurations have narrower parser/unit evidence; there is no general GPU passthrough qualification. |
 
-The supported core is a Debian VM, storage, Jellyfin/Seerr/Starr applications,
-optional Usenet, VPN-protected torrents, and management. Photos and music stay
-optional, with their own acceptance checks. GPU passthrough, public exposure,
-automatic collection migration and local LLM hosting do not gate this core
-milestone.
+The friend began the guided installation independently and corrected early
+failures with assistance. Maintainer commissioning completed the recorded
+provider checks. That is one assisted deployment, not a broad independent
+hardware or user study.
 
-## Candidate status on October 25
+## What stays deliberate
 
-The 0.2 candidate combines the Bash entry points, all alpha recovery/enrollment
-fixes, optional reviewed media profiles and reproducible release assets. The
-current [validation record](VALIDATION.md) includes real app imports, a
-consistent six-app restore and generated-video playback, alongside unit and
-Compose checks. These are bounded lab results, not subscriber-service evidence.
+The operator chooses storage, numeric media identity, protocol/VPN, provider
+subscriptions, indexers and policies. Backend automation handles the supported
+choices without inventing accounts. Proxmox installation, physical disk
+selection, NAS export administration and GPU passthrough remain separate.
+Photos/music retain their own owner/player/provider/backup acceptance steps.
 
-Commercial VPN interruption/recovery with an unused provider profile, actual
-subscriber completed-download commissioning and the independent operator's
-finished-install readback remain open. An active household or friend's key
-must not be reused concurrently to manufacture that result. The final release
-is held for those checks; the candidate remains available for testing.
+Source authentication and a green container do not prove acquisition. A
+registered subtitle provider does not prove it delivered a subtitle. The
+optional English policy applies to future additions and does not launch a
+whole-library backfill. Capacity reserves are pause/import thresholds, not
+quotas; other processes and in-flight work can still consume disk space.
 
-## What stays manual
+## Next qualification work
 
-Proxmox installation and hardware allocation, selecting and mounting an existing
-disk, NAS export administration, provider account creation, indexer preferences,
-subtitle languages, and real playback/notification tests require
-the operator's choices. Backend automation should remove repetitive typing
-without guessing those choices or claiming that a green container proves them.
-The optional [HD/original-audio profile policy](MEDIA-PROFILES.md) is now
-reviewed in the installer. It does not silently change existing title profiles
-or global size definitions.
-
-If the above gates pass while the supported hardware matrix is still small,
-0.2 should ship as a beta with those limits documented. General-purpose stable
-deployment needs broader independent evidence.
+Broaden independent clean-install/recovery reports, storage/hardware coverage,
+long-duration upgrade testing, provider variants and notification delivery.
+Keep published evidence scoped to what was exercised. Public ingress,
+automatic collection migration, local LLM hosting and unattended hardware
+changes remain outside this milestone.

@@ -7,9 +7,15 @@ separate plan, apply and verification result, so a failed optional component
 does not require starting the installation again.
 
 For the guided installer, start with [QUICKSTART.md](QUICKSTART.md). This guide documents the lower-level CLI for operators who want explicit plan files and individual commands. The dated [validation record](VALIDATION.md)
-states which parts of the current release candidate have actually been exercised.
+states which parts of the current release have actually been exercised.
 Gather the [deployment-night intake](DEPLOYMENT-NIGHT.md) first if you are setting
 this up for someone else; it lists the access, hardware and manual choices needed.
+
+For source checks and private additive intake, see [indexer readiness](INDEXERS.md).
+`./stack --config /actual/private/site.json indexers verify` tests existing enabled
+sources without changing their configuration. Its readiness result is separate
+from container health and actual acquisition. Hidden credential intake is in
+`./setup 3`; reviewed CLI retries use an opaque saved input ID, never a key flag.
 
 An intentional application wipe uses the guided `./setup --fresh` entry point,
 not advanced resume commands that require an old site. See [fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
@@ -45,7 +51,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.2.0-rc.3
+git checkout v0.2.0
 ./stack --version
 ```
 

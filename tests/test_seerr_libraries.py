@@ -197,7 +197,6 @@ class SeerrLibraryTests(unittest.TestCase):
     def test_refuses_ambiguous_or_different_existing_managed_selections(self):
         rows = (
             [{"id": OTHER, "name": "Samurai example Movies", "type": "movie", "enabled": True}],
-            [{"id": MOVIES, "name": "Manual name", "type": "movie", "enabled": True}],
             [{"id": MOVIES, "name": "Samurai example Movies", "type": "show", "enabled": True}],
             [{"id": OTHER, "name": "Custom", "type": "movie", "enabled": "false"}],
             [{"id": OTHER, "name": "Custom", "type": "movie", "enabled": True}] * 2,
@@ -248,6 +247,59 @@ class SeerrLibraryTests(unittest.TestCase):
         vendor.settings["name"] = "My custom display name"
         seerr_libraries.configure(vendor.run())
         self.assertEqual(vendor.settings["name"], "My custom display name")
+
+    def test_custom_jellyfin_and_seerr_display_names_preserve_same_id_and_type(self):
+        vendor = Vendor()
+        for row, name in zip(vendor.virtual, ("Movies", " TV")):row["Name"] = name
+        for row, name in zip(vendor.folders["Items"], ("Movies", " TV")):row["Name"] = name
+        vendor.settings["libraries"] = [
+            {"id": MOVIES, "name": "Personal movie label", "type": "movie", "enabled": True, "lastScan": 55},
+            {"id": TV, "name": " TV", "type": "show", "enabled": True},
+            {"id": OTHER, "name": "Unrelated stored selection", "type": "movie", "enabled": False,
+             "futureSetting": {"keep": True}},
+        ]
+        before = copy.deepcopy(vendor.settings)
+        seerr_libraries.configure(vendor.run())
+        seerr_libraries.verify(vendor.run(write=False))
+        self.assertEqual(vendor.settings, before)
+        self.assertFalse(vendor.writes())
+
+    def test_missing_row_sync_may_refresh_only_verified_canonical_display_metadata(self):
+        vendor = Vendor()
+        vendor.virtual[0]["Name"] = "Movies"
+        vendor.folders["Items"][0]["Name"] = "Movies"
+        custom = {"id": OTHER, "name": "Custom movies", "type": "movie", "enabled": True, "lastScan": 31}
+        vendor.settings["libraries"] = [copy.deepcopy(custom),
+            {"id": MOVIES, "name": "Previous movie label", "type": "movie", "enabled": True, "lastScan": 55}]
+        vendor.folders["Items"].append({"Id": OTHER, "Name": "Custom movies", "Type": "CollectionFolder", "CollectionType": "movies"})
+        seerr_libraries.configure(vendor.run())
+        self.assertIn(custom, vendor.settings["libraries"])
+        movies = next(row for row in vendor.settings["libraries"] if row["id"] == MOVIES)
+        self.assertEqual(movies, {"id": MOVIES, "name": "Movies", "type": "movie", "enabled": True, "lastScan": 55})
+        self.assertEqual(vendor.writes(), [("POST", "/api/v1/settings/jellyfin/library/sync", None),
+                                         ("PUT", "/api/v1/settings/jellyfin/library/" + TV, {"enabled": True})])
+
+    def test_sync_cannot_refresh_unrelated_renamed_metadata(self):
+        vendor = Vendor()
+        custom = {"id": OTHER, "name": "Previous custom name", "type": "movie", "enabled": True}
+        vendor.settings["libraries"] = [copy.deepcopy(custom)]
+        vendor.folders["Items"].append({"Id": OTHER, "Name": "New custom name", "Type": "CollectionFolder", "CollectionType": "movies"})
+        with self.assertRaisesRegex(integrations.Conflict, "unrelated selection"):
+            seerr_libraries.configure(vendor.run())
+        self.assertEqual(vendor.settings["libraries"], [custom])
+        self.assertFalse(vendor.writes())
+
+    def test_custom_names_cannot_hide_mixed_locations_or_collection_type_mismatch(self):
+        for issue in ("mixed", "duplicate", "wrong-type", "wrong-folder-type"):
+            with self.subTest(issue=issue):
+                vendor = Vendor()
+                vendor.virtual[0]["Name"] = vendor.folders["Items"][0]["Name"] = "Movies"
+                if issue == "mixed":vendor.virtual[0]["Locations"].append("/other/movies")
+                elif issue == "duplicate":vendor.virtual.append({**copy.deepcopy(vendor.virtual[0]), "ItemId": OTHER})
+                elif issue == "wrong-type":vendor.virtual[0]["CollectionType"] = "tvshows"
+                elif issue == "wrong-folder-type":vendor.folders["Items"][0]["CollectionType"] = "tvshows"
+                with self.assertRaises(integrations.Conflict):seerr_libraries.configure(vendor.run())
+                self.assertFalse(vendor.writes())
 
 
 if __name__ == "__main__":

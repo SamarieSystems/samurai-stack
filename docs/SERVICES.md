@@ -24,7 +24,7 @@ the new session. Existing media is retained; this is not a media migration.
 | --- | --- | --- | --- |
 | 2 | Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr; SABnzbd when Usenet is enabled | Terminal media accounts and private API keys; library roots; Starr download clients; Prowlarr/Bazarr links; Jellyfin movie/TV libraries and their enabled Seerr selections; Seerr Starr settings; verified-TLS NNTP setup | Supply administrator/viewer and provider credentials; choose indexers, subtitle providers/languages and quality preferences; test actual acquisition/playback |
 | 3 | Gluetun, qBittorrent; authenticated port watcher when forwarding is enabled | Namespace boundary; initial authenticated qBit configuration; `tun0`; paths/categories; uncapped bandwidth; Starr clients and release protocol preference | VPN service credentials/configuration; copied Starr API keys on separate hosts; VPN commissioning proofs |
-| 4 | Dockge, Uptime Kuma; optional Homarr with a restricted socket proxy | Persistent local state and LAN bindings | First administrators, monitor URLs, actual notification destination and delivery test |
+| 4 | Dockge, Uptime Kuma; optional Homarr with a restricted socket proxy | Persistent local state/LAN bindings; proven-new Dockge/Kuma owners; authenticated login/project/monitor checks; additive named private TCP monitors | Current owner credentials for existing accounts; optional Homarr onboarding; actual notification destination and delivery test |
 | 5 | Immich server, CPU machine learning, Valkey, matched PostgreSQL image | Private DB credential, local DB storage, dedicated upload tree, external originals mounted read-only | Administrator onboarding, independent backup, controlled upload/playback/restore tests |
 | 6 | Navidrome and slskd; optional Music Assistant | Local application state, read-only music library, separate downloads, private credentials | Administrator enrollment, Soulseek account, music import policy, player/provider enrollment |
 
@@ -102,7 +102,10 @@ configuration outside the source checkout.
 4. The installer saves and reads back the supported application connections.
    No API key is printed. On a separate VM, the advanced private `secret`
    command can transfer the application keys that guest actually requires.
-5. Open the printed LAN URLs to select your quality profiles, indexers and
+5. Step 3 tests existing Prowlarr sources and offers hidden, reviewed
+   NZBGeek/Newznab/Torznab intake for missing protocol coverage. See
+   [source readiness](INDEXERS.md) for supported providers and pending results.
+   Open the printed LAN URLs for other source types, quality preferences and
    Bazarr subtitle languages/providers. Connection wiring does not invent
    provider accounts or prove that a subtitle login works. Use the everyday
    Jellyfin viewer for playback and Seerr requests.
@@ -118,8 +121,9 @@ Existing Seerr choices are preserved. If none is unambiguous, select a profile
 in Seerr deliberately. A default Seerr server, its selected root and its profile
 must all pass readback before verification succeeds.
 
-The two managed Jellyfin libraries must also be enabled in Seerr. Their exact
-deployment names, paths, IDs and movie/TV types are verified before selection.
+The two canonical Jellyfin libraries must also be enabled in Seerr. Their exact
+paths, IDs and movie/TV types are verified before selection; custom display
+names are preserved.
 Unrelated enabled and disabled selections are preserved. Missing entries use
 Seerr's metadata-only library discovery only when every existing selection can
 be preserved; stale/custom metadata that would be dropped causes a refusal.

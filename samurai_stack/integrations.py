@@ -281,11 +281,12 @@ def _bazarr(r):
     headers = {"X-API-KEY": r.key("bazarr_api_key")}
     url = r.media["bazarr"] + "/api/system/settings"
     settings = r.call("GET", url, headers=headers)
-    form = {}
+    form, connections = {}, {}
     for service in ["sonarr", "radarr"]:
         current = settings.get(service, {})
         expected = {"ip": role_host(r.config, 2), "port": PORTS[service], "base_url": "/",
                     "ssl": False, "apikey": r.key(service + "_api_key")}
+        connections[service] = expected
         if current.get("apikey") and current.get("apikey") != expected["apikey"]:
             raise Conflict("Bazarr already has a different Starr credential; refusing to overwrite it")
         for key, value in expected.items():
@@ -300,39 +301,62 @@ def _bazarr(r):
         settings = r.call("GET", url, headers=headers)
     for service in ["sonarr", "radarr"]:
         current = settings.get(service, {})
-        if not settings.get("general", {}).get("use_" + service) or current.get("ip") != role_host(r.config, 2) or int(current.get("port", 0)) != PORTS[service]:
+        expected = connections[service]
+        # Check every persisted connection field. A successful POST can still
+        # ignore a key or retain SSL/base-URL settings for a different target.
+        # Keys must match exactly; URL normalization must not trim credentials.
+        if (settings.get("general", {}).get("use_" + service) is not True
+                or current.get("ip") != expected["ip"]
+                or not _same(current.get("port"), expected["port"])
+                or not _same(current.get("base_url"), expected["base_url"])
+                or current.get("ssl") is not expected["ssl"]
+                or current.get("apikey") != expected["apikey"]):
             raise RuntimeError("Bazarr connection readback failed")
     return "Sonarr and Radarr connections verified; subtitle provider/language choice remains in Bazarr"
 
 
 def _jellyfin(r):
+    from .seerr_libraries import _canonical_library
     headers = jellyfin_headers(r.key("jellyfin_api_key"))
     base = r.media["jellyfin"]
     info = r.call("GET", base + "/System/Info", headers=headers)
     if not info.get("Id"):
         raise Pending("Complete Jellyfin administrator onboarding and save its API key")
     libraries = r.call("GET", base + "/Library/VirtualFolders", headers=headers)
+    folders = r.call("GET", base + "/Library/MediaFolders", headers=headers)
+    missing = []
     for suffix, media_type in [("Movies", "movies"), ("TV", "tvshows")]:
         folder = "movies" if suffix == "Movies" else "tv"
         name, path = f"Samurai {r.config['deployment_name']} {suffix}", "/data/library/" + folder
-        existing = [i for i in libraries if i.get("Name") == name]
-        if existing:
-            if len(existing) != 1 or existing[0].get("Locations") != [path]:
-                raise Conflict("Deployment-named Jellyfin library points elsewhere; refusing to replace it")
-        elif not r.write:
-            raise Conflict("Jellyfin managed library missing; run configure")
-        else:
-            query = urlencode({"name": name, "collectionType": media_type, "refreshLibrary": "false"})
-            r.call("POST", base + "/Library/VirtualFolders?" + query, headers=headers,
-                   json={"LibraryOptions": {"PathInfos": [{"Path": path}], "SaveLocalMetadata": False,
-                                            "EnableRealtimeMonitor": False}})
+        if _canonical_library(libraries, folders, name, path, media_type,
+                              "movie" if suffix == "Movies" else "show") is None:
+            missing.append((name, path, media_type))
+    # Validate both existing library identities before creating either missing
+    # collection. A conflicting TV row must not first create a movie duplicate.
+    if missing and not r.write:
+        raise Conflict("Jellyfin canonical library missing; run configure")
+    for name, path, media_type in missing:
+        query = urlencode({"name": name, "collectionType": media_type, "refreshLibrary": "false"})
+        r.call("POST", base + "/Library/VirtualFolders?" + query, headers=headers,
+               json={"LibraryOptions": {"PathInfos": [{"Path": path}], "SaveLocalMetadata": False,
+                                        "EnableRealtimeMonitor": False, "EnableInternetProviders": True}})
     # Fetch once more so a successful POST is not confused with persisted state.
     libraries = r.call("GET", base + "/Library/VirtualFolders", headers=headers)
-    expected = {f"Samurai {r.config['deployment_name']} Movies": "/data/library/movies",
-                f"Samurai {r.config['deployment_name']} TV": "/data/library/tv"}
-    if not all(any(x.get("Name") == name and x.get("Locations") == [path] for x in libraries) for name, path in expected.items()):
-        raise RuntimeError("Jellyfin library readback failed")
+    folders = r.call("GET", base + "/Library/MediaFolders", headers=headers)
+    for suffix, path, collection, kind in (("Movies", "/data/library/movies", "movies", "movie"),
+                                           ("TV", "/data/library/tv", "tvshows", "show")):
+        if _canonical_library(libraries, folders, f"Samurai {r.config['deployment_name']} {suffix}",
+                              path, collection, kind) is None:
+            raise RuntimeError("Jellyfin library readback failed")
     return "administrator API access and read-only movie/TV library paths verified"
+
+
+def _jellyfin_refresh(r, service):
+    """Use native import events to refresh Jellyfin, including NFS libraries."""
+    return r.ensure(service, "/api/v3/notification", "Samurai " + r.config["deployment_name"] + " Jellyfin",
+        "MediaBrowser", {"host": role_host(r.config, 2), "port": PORTS["jellyfin"], "useSsl": False,
+            "urlBase": "", "apiKey": r.key("jellyfin_api_key"), "notify": False, "updateLibrary": True,
+            "mapFrom": "", "mapTo": ""}, {"onDownload": True, "onUpgrade": True, "onRename": True})
 
 
 def _seerr(r, service, *, readback_only=False):
@@ -477,6 +501,8 @@ def _run(config, stage, request, secret_resolver, write):
                 r.step(service + ":sabnzbd", lambda s=service, c=category: _download_client(r, s, c))
         r.step("bazarr:starr", lambda: _bazarr(r))
         r.step("jellyfin:libraries", lambda: _jellyfin(r))
+        for service in ("sonarr", "radarr"):
+            r.step(service + ":jellyfin-refresh", lambda s=service: _jellyfin_refresh(r, s))
         r.step("seerr:jellyfin", lambda: _seerr_jellyfin(r))
         from .seerr_libraries import configure as configure_libraries, verify as verify_libraries
         r.step("seerr:libraries", lambda: (configure_libraries if r.write else verify_libraries)(r))
@@ -497,8 +523,14 @@ def _run(config, stage, request, secret_resolver, write):
             # through root redirects. No redirect following is needed here.
             path = "/dashboard" if service == "uptime-kuma" else "/"
             r.step("management:" + service + "-http", lambda s=service, p=path: _frontend(r, endpoints[s] + p))
-        r.report["pending"].append({"name": "management:enrollment",
-                                    "action": "Create Dockge and Uptime Kuma administrators in their private LAN UIs; add monitors and select notification destinations. Homarr, if enabled, also needs first-run enrollment."})
+        from . import management_setup
+        if management_setup.has_enrollment(config):
+            r.step("management:accounts-and-monitors", lambda: management_setup.verify(config))
+        else:
+            r.report["pending"].append({"name": "management:enrollment",
+                "action": "Run ./setup 5 for backend account enrollment and listener monitors. Existing owners must authenticate; no accounts are reset."})
+        if config.get("features", {}).get("homarr", False):
+            r.report["pending"].append({"name": "homarr:enrollment", "action": "Complete optional Homarr enrollment in its private LAN UI."})
     elif stage == 5 and config.get("features", {}).get("photos", False):
         endpoint = stage_endpoints(config, 5)["immich-server"]
         def photo():

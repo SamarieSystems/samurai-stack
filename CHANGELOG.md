@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.2.0 - 2026-10-25
+
+- Complete the supported staged Debian media-server installer with consistent
+  Bash operator entry points and a standard-library Python backend. Keep trusted
+  configuration outside the downloaded source and preserve application/media
+  identities across updates, interrupted setup and reviewed recovery.
+- Test existing Prowlarr sources and report actual protocol/category coverage
+  separately from container health. Offer private, additive NZBGeek, Newznab and
+  Torznab intake with source tests and reviewed plans. Missing or failed sources
+  remain pending; no subscriptions or provider accounts are supplied.
+- Offer reviewed future-import Sonarr/Radarr naming with Jellyfin TVDb/TMDb
+  folder IDs and release metadata in filenames. Back up original naming policy
+  and verify exact readback; do not rename or move existing media.
+- Add optional native free-space floors plus an owned qBittorrent pause watcher
+  for both media and application storage. Preserve seeders, pause only selected
+  incomplete downloads and never automatically resume, delete data or relax VPN
+  safeguards. Reserves are thresholds, not disk quotas.
+- Add optional English subtitle policy for future additions without launching
+  whole-library backfill. Use the pinned Bazarr runtime's stored profile-item
+  contract and narrowly repair only proven installer-owned legacy profile items.
+  Keep other profiles/settings and save a full before snapshot. Provider
+  registration is distinct from a successful subtitle download.
+- Automate proven-new Dockge/Kuma first administrators and additive private TCP
+  monitors. Verify real logins, incorrect-password rejection and exact project/
+  monitor readback. Resume saved first-run intent through bounded Kuma startup
+  races. Existing owners must authenticate; no passwords are reset or extra
+  administrators inserted. Notification delivery remains operator-configured.
+- Preserve custom Jellyfin/Seerr library display names through canonical path,
+  type and ID checks. Verify both Bazarr Starr connections completely. Wire
+  native Starr-to-Jellyfin library refresh notifications without user-facing
+  messages; new libraries enable normal metadata providers explicitly.
+- Retain the earlier RC's hardlink, restored-account, Compose-name immutability,
+  exact owned-service recovery, authenticated VPN and source-package safeguards.
+  Validate actual disposable first-run management and packaged entry points as
+  well as unit tests; keep target-machine commissioning separate from parser
+  and container checks.
+
+The supported core is a private Linux guest with CPU playback, mounted Linux
+storage, the documented media applications, optional Usenet/VPN torrents and
+management. Photos/music have separate onboarding and acceptance. Hardware
+passthrough, public exposure, automatic collection migration, arbitrary provider
+support and line-rate throughput are not implied. See [validation](docs/VALIDATION.md).
+
 ## 0.2.0-rc.3 - 2026-10-25
 
 - Include the naming dependency in the standalone hardlink repair payload.

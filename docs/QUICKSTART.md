@@ -47,7 +47,7 @@ Application ports bind to the selected LAN address; installing Tailscale alone
 does not also bind those ports to a separate Tailscale address.
 
 Download `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3).
+[0.2.0 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0).
 Copy both files into one directory in the guest. In a terminal in that directory:
 
 ```sh
@@ -116,7 +116,7 @@ require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.sh` release asset. Obtain it from the
-[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3)
+[0.2.0 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
@@ -151,11 +151,11 @@ An older extracted ZIP does not acquire new behavior by itself; run the new
 source or the verified portable asset.
 
 For a Git checkout only, update using the account that owns it. For example,
-the release candidate source can be selected with:
+the release source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.2.0-rc.3
+git checkout v0.2.0
 ./setup
 ```
 
@@ -305,20 +305,25 @@ the terminal requests it without changing that account.
 The installer then tests, saves and reads back the supported
 library/client/application connections. You do not construct inter-app URLs
 and paths yourself. This includes enabling and reading back Sonarr/Radarr's
-`copyUsingHardlinks` and selecting the two deployment-named Jellyfin movie/TV
-libraries in Seerr after verifying their actual paths and IDs. Unrelated Seerr
+`copyUsingHardlinks` and selecting the two canonical Jellyfin movie/TV
+libraries in Seerr after verifying their actual paths, types and IDs. Custom
+display names and unrelated Seerr
 library selections are preserved. Setup does not start a content scan or
 request media; scheduled availability checks can use the enabled libraries.
 An actual download/import inode check remains a separate acceptance test.
+
+The optional [future-import naming review](MEDIA-NAMING.md) adds Jellyfin
+TVDb/TMDb folder IDs and retains release metadata in future filenames. It does
+not rename current files or move existing title folders.
 
 Open the printed LAN URLs after account setup. These choices still belong to
 you; they are not unfinished account wizards:
 
 | Choice | Where to make it |
 | --- | --- |
-| Indexer accounts and searches | Add your authorized indexers in Prowlarr and test them. |
+| Indexer accounts and searches | Step 3 tests existing sources and offers private NZBGeek/Newznab/Torznab intake when needed. Other source types can be configured in Prowlarr, then verified by the same step. See [source readiness](INDEXERS.md). |
 | Quality, language and size preferences | Opt into the reviewed preset, or review profiles/cutoff rules in Sonarr/Radarr. Global sizes are a separate change. |
-| Subtitle languages and providers | Select them in Bazarr using your own provider accounts. |
+| Subtitle languages and providers | Review the optional future-additions [English policy](SUBTITLES.md), or select your own Bazarr policy/provider accounts. Existing-library backfill is not run. |
 | Usenet subscription and connection allowance | Obtain these from your provider; terminal setup handles the server connection. |
 
 For only the hardlink setting on an existing install, use
@@ -374,9 +379,15 @@ an active VPN or invent kill-switch evidence. Resume with `./setup 4`.
 ## 5. Set up management
 
 Select **5** for Dockge and Uptime Kuma. Homarr is optional. Open the printed
-addresses, create each enabled administrator and configure the monitors and
-notification destination you use. Receive a real test notification before
-confirming the checklist in the installer.
+addresses after terminal enrollment. Proven-new Dockge/Kuma owners can use the
+saved media administrator, or a management login entered through hidden prompts.
+Existing owners must use their current credentials. Setup never resets a password
+or adds another administrator behind an existing owner. It adds missing named
+private TCP-listener monitors, preserves custom monitors and verifies real logins.
+The optional Homarr owner still needs its own onboarding.
+
+Choose the notification destination in Kuma and receive a real test notification.
+Listener/account checks do not prove delivered alerts or full application health.
 
 Management does not require the NAS. Dockge controls this guest's Docker daemon,
 not every other VM automatically. Use it for logs and container terminals. The

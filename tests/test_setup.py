@@ -117,6 +117,10 @@ class GuidedSetupTests(unittest.TestCase):
              mock.patch.object(self.ui, 'install', return_value=True), \
              mock.patch.object(self.ui, 'enroll_accounts', return_value={'sonarr', 'radarr'}), \
              mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'media_naming', return_value=True), \
+             mock.patch.object(self.ui, 'capacity_policy', return_value=True), \
+             mock.patch.object(self.ui, 'subtitles', return_value=True), \
+             mock.patch.object(self.ui, 'indexer_sources', return_value=True), \
              mock.patch.object(self.ui, 'media_profiles', side_effect=lambda: events.append('profiles') or True), \
              mock.patch.object(self.ui, 'wire', side_effect=lambda stage: events.append('wire') or True):
             self.assertTrue(self.ui.media())
@@ -127,6 +131,10 @@ class GuidedSetupTests(unittest.TestCase):
              mock.patch.object(self.ui, 'install', return_value=True), \
              mock.patch.object(self.ui, 'enroll_accounts', return_value={'sonarr', 'radarr', 'jellyfin'}), \
              mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'media_naming', return_value=True), \
+             mock.patch.object(self.ui, 'capacity_policy', return_value=True), \
+             mock.patch.object(self.ui, 'subtitles', return_value=True), \
+             mock.patch.object(self.ui, 'indexer_sources', return_value=True), \
              mock.patch.object(self.ui, 'wire', return_value=True), \
              mock.patch.object(self.ui, 'media_profiles') as policy:
             self.assertTrue(self.ui.media())
@@ -226,6 +234,10 @@ class GuidedSetupTests(unittest.TestCase):
              mock.patch.object(self.ui, 'install', return_value=True), \
              mock.patch.object(self.ui, 'enroll_accounts', return_value={'jellyfin', 'seerr', 'bazarr', 'sabnzbd'}), \
              mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'media_naming', return_value=True), \
+             mock.patch.object(self.ui, 'capacity_policy', return_value=True), \
+             mock.patch.object(self.ui, 'subtitles', return_value=True), \
+             mock.patch.object(self.ui, 'indexer_sources', return_value=True), \
              mock.patch.object(self.ui, 'wire', return_value=True) as wire, \
              mock.patch.object(self.ui, 'secret') as secret:
             self.assertTrue(self.ui.media())
@@ -265,6 +277,10 @@ class GuidedSetupTests(unittest.TestCase):
              mock.patch.object(self.ui, 'install', return_value=True), \
              mock.patch.object(self.ui, 'enroll_accounts', return_value={'jellyfin', 'seerr', 'sabnzbd'}), \
              mock.patch.object(self.ui, 'wire', return_value=True) as wire, \
+             mock.patch.object(self.ui, 'media_naming', return_value=True), \
+             mock.patch.object(self.ui, 'capacity_policy', return_value=True), \
+             mock.patch.object(self.ui, 'subtitles', return_value=True), \
+             mock.patch.object(self.ui, 'indexer_sources', return_value=True), \
              mock.patch.object(usenet, 'providers', return_value=[]), \
              mock.patch.object(usenet, 'saved_provider', return_value=saved), \
              mock.patch.object(usenet, 'needs_login', return_value=False), \

@@ -10,7 +10,7 @@ If the friend already runs Jellyfin/qBit on combined disks, start with the
 existing-machine branch below. Do not install Proxmox over that machine or
 rebuild its storage pool just to follow the new-guest path.
 
-This is a release candidate with recorded disposable-machine checks, not a
+This release has recorded disposable-machine checks; it is not a
 replacement for checking the actual machine and provider. Read
 [QUICKSTART.md](QUICKSTART.md) for the guided menu and
 [VALIDATION.md](VALIDATION.md) for the evidence and remaining limits.
@@ -163,7 +163,7 @@ plaintext password bundle or reuse the developer's credentials.
 | NAS storage | NAS administrator access to create a dedicated user/export/ACL, plus an allowed media identity | Vendor UI, then the guided guest connection review. NFS normally authorizes hosts and numeric identities rather than taking an SMB password. |
 | Torrents | VPN subscription and protocol-specific service credentials/configuration | Hidden `secret` inputs on the torrent guest. A website password is not necessarily the VPN credential. |
 | Usenet | NNTP server hostname, TLS port, service username/password and connection allowance | Hidden terminal prompts in guided step 3, verified TLS connection test and automatic SAB wizard completion. Existing configured providers are tested and kept. |
-| Indexers/subtitles | Chosen provider URL and API key/account, if required | Prowlarr/Bazarr UIs. No commercial account or indexer is supplied. |
+| Indexers/subtitles | Chosen provider URL and API key/account, if required | Guided step 3 offers private NZBGeek/Newznab/Torznab intake and an optional future-additions English subtitle policy. Other providers remain deliberate app setup. No commercial account is supplied. |
 | App enrollment | One application administrator login and a different everyday Jellyfin/Seerr viewer login; current administrator credentials when retaining an existing Jellyfin account | Guided step 3 hidden prompts enroll all selected media accounts and save API keys privately. Seerr uses Jellyfin sign-in. Existing accounts and policies are preserved. |
 | Monitoring | Chosen email/chat/webhook destination and its required credential | Kuma UI, followed by an actually delivered test alert. |
 | Optional music | Your friend's Soulseek credentials; selected music-provider/player access | `secret soulseek_username`, `secret soulseek_password`, then separate Music Assistant enrollment if enabled. |

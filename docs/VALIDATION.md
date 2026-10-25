@@ -1,7 +1,71 @@
 # Release validation
 
-The dated sections record measured results for each release candidate. They
+The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
+
+## 0.2.0: Integrated installer and assisted commissioning
+
+October 25, 2026. Earlier candidate evidence is retained below rather than
+rewritten as broader proof. The supported path remains a private Linux guest.
+
+The complete 943-test suite passed on Windows with 45 explicit skips, on the
+Debian guest as root with 14 skips, and as an ordinary account with 13 skips.
+The offline guest lacks Git for eleven cases; other skips depend on platform,
+runtime or the account needed for a permission/elevation case. Both Linux runs
+used an isolated cached Node runtime for Socket.IO protocol tests. All 21 actual
+Compose parser scenarios passed without starting containers. The public source
+audit had zero findings; the guest scan included one retained private test helper
+in addition to the 137 public files. Initial ordinary-account fixture failures
+were fixed by isolating management discovery and temporary-file ownership proof
+from the real host's private directories.
+
+- A new management deployment in the isolated CPU-only Debian 13 guest exercised
+  the public engine's pre-start freshness reservation and actual Dockge/Kuma
+  first-owner setup. Correct passwords authenticated, incorrect passwords were
+  rejected, Dockge discovered its managed project and Kuma returned eight named
+  TCP-listener monitors. Retry kept account/monitor IDs and private credential
+  bytes unchanged. Independent engine verification passed. An unused media
+  directory stayed absent. The exact test service was stopped and disabled.
+- The initial actual run caught a Kuma listener race after its database became
+  visible. The fix retries only bounded readiness reads, waits for in-progress
+  setup, rejects unknown schemas and never retries the setup write. The retained
+  partial attempt resumed without replacing its Dockge owner. A separate fresh
+  deployment passed the full path. A private harness assertion was corrected
+  to expect `configured` from configure and `verified` from verification.
+- Source intake, future-import naming, capacity and subtitle policy have
+  dedicated stateful tests and guided/CLI checks. Source authentication is
+  separate from downloads. Naming writes only naming settings, never existing
+  file/title APIs. Capacity stops only selected incomplete hashes and never
+  resumes or deletes. Reserves are thresholds, not quotas.
+- Maintainer commissioning on one assisted friend installation completed an
+  official SAB test download of roughly 100 MiB, with repair/unpack and about
+  9.5 MB/s during that bounded test. An actual Radarr completed-download import
+  was recorded on the intended media filesystem. This is not a full bandwidth
+  benchmark or evidence for arbitrary providers.
+- The same commissioning interrupted the exact owned Proton tunnel while
+  retaining its firewall. HTTPS egress failed without an address; the torrent
+  safeguard closed the client binding during failure and restored `tun0` after
+  recovery and a verified forwarded port. A harmless canary completed and
+  uploaded to an interested peer. No all-provider or throughput claim is made.
+- Actual Bazarr title assignment caught opaque profile JSON that a settings
+  roundtrip accepted but the pinned runtime could not consume. Stored item keys
+  now follow that runtime's snake_case contract. A reviewed, receipt-bound
+  repair changes only the exact installer-owned legacy shape, preserves other
+  profiles and saves a complete before snapshot. Actual title assignment then
+  succeeded. Two bounded missing-English jobs were accepted; subtitle sidecar
+  delivery is not claimed. Embedded-English media in the sampled set was kept.
+- Native Starr-to-Jellyfin library-refresh notifications passed actual backend
+  tests and saved readback with shared paths and user-facing messages disabled.
+  New libraries explicitly enable normal metadata providers; existing library
+  provider preferences are retained. A live naming review also caught Radarr's
+  string enum versus Sonarr's integer field; both representations are now
+  preserved rather than coercing the existing colon-replacement policy.
+
+This is one assisted rollout plus bounded disposable evidence. Existing
+management owners with unknown credentials still need their current login;
+the installer does not reset them or insert another administrator. Notification
+delivery, best-effort subtitle providers, arbitrary clients, other VPNs,
+sustained load and broader independent hardware qualification remain separate.
 
 ## 0.2.0-rc.3: Standalone repair packaging
 

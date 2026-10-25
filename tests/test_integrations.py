@@ -1,6 +1,7 @@
 import copy
 import json
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit, parse_qs
 
 from samurai_stack import integrations
@@ -144,8 +145,8 @@ class VendorModel:
                 return {"error": "Schema changed"}
             return []
         if path.endswith("/schema"):
-            impls = ["Sabnzbd", "QBittorrent"] if "downloadclient" in path else ["Radarr", "Sonarr"]
-            fields = ["host", "port", "useSsl", "urlBase", "username", "password", "apiKey", "movieCategory", "tvCategory", "prowlarrUrl", "baseUrl"]
+            impls = ["MediaBrowser"] if "notification" in path else ["Sabnzbd", "QBittorrent"] if "downloadclient" in path else ["Radarr", "Sonarr"]
+            fields = ["host", "port", "useSsl", "urlBase", "username", "password", "apiKey", "movieCategory", "tvCategory", "prowlarrUrl", "baseUrl", "notify", "updateLibrary", "mapFrom", "mapTo"]
             return [{"implementation": i, "configContract": i + "Settings", "fields": [{"name": n, "value": None} for n in fields]} for i in impls]
         rows = self.collections.setdefault((service, path), [])
         if method == "POST" and not self.ignore_writes:
@@ -158,6 +159,36 @@ def secrets(name):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_import_events_refresh_jellyfin_without_broadcasting_or_duplicate_connections(self):
+        vendor = VendorModel()
+        first = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertTrue(first["ok"], first)
+        for service in ("sonarr", "radarr"):
+            rows = vendor.collections[(service, "/api/v3/notification")]
+            self.assertEqual(1, len(rows))
+            self.assertEqual("MediaBrowser", rows[0]["implementation"])
+            fields = integrations._fields(rows[0])
+            self.assertEqual({"notify": False, "updateLibrary": True, "port": 8096},
+                {key: fields[key] for key in ("notify", "updateLibrary", "port")})
+            self.assertTrue(all(rows[0][key] for key in ("onDownload", "onUpgrade", "onRename")))
+        self.assertTrue(integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)["ok"])
+        self.assertTrue(all(len(vendor.collections[(s, "/api/v3/notification")]) == 1 for s in ("sonarr", "radarr")))
+        creates = [body for method, url, body, form in vendor.calls
+                   if method == "POST" and urlsplit(url).path == "/Library/VirtualFolders"]
+        self.assertEqual(2, len(creates))
+        self.assertTrue(all(body["LibraryOptions"]["EnableInternetProviders"] for body in creates))
+
+    def test_existing_named_jellyfin_connection_is_not_repointed(self):
+        vendor = VendorModel()
+        self.assertTrue(integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)["ok"])
+        row = vendor.collections[("sonarr", "/api/v3/notification")][0]
+        next(field for field in row["fields"] if field["name"] == "host")["value"] = "192.168.1.99"
+        before = copy.deepcopy(row)
+        result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(x["name"] == "sonarr:jellyfin-refresh" for x in result["errors"]))
+        self.assertEqual(before, row)
+
     def test_new_seerr_connection_prefers_opted_in_profile_and_existing_choice_survives(self):
         vendor = VendorModel()
         c = config()
@@ -360,6 +391,92 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(vendor.sab["complete_dir"], "/existing/documents")
 
+    def test_jellyfin_custom_library_names_are_preserved_without_duplicate_creation(self):
+        vendor = VendorModel()
+        vendor.libraries = [
+            {"Name": "Movies", "Locations": ["/data/library/movies"], "ItemId": "a" * 32, "CollectionType": "movies"},
+            {"Name": " TV", "Locations": ["/data/library/tv"], "ItemId": "b" * 32, "CollectionType": "tvshows"},
+        ]
+        before = copy.deepcopy(vendor.libraries)
+        for write in (True, False):
+            run = integrations._Run(config(), 2, vendor, secrets, write)
+            integrations._jellyfin(run)
+        self.assertEqual(vendor.libraries, before)
+        self.assertFalse(any(method != "GET" for method, _, _, _ in vendor.calls))
+
+    def test_jellyfin_conflicting_tv_preflight_never_first_creates_a_movie_library(self):
+        vendor = VendorModel()
+        vendor.libraries = [{"Name": "Samurai example TV", "Locations": ["/other/tv"],
+                             "ItemId": "b" * 32, "CollectionType": "tvshows"}]
+        with self.assertRaises(integrations.Conflict):
+            integrations._jellyfin(integrations._Run(config(), 2, vendor, secrets, True))
+        self.assertFalse(any(method != "GET" for method, _, _, _ in vendor.calls))
+
+    def test_jellyfin_canonical_library_ambiguity_type_and_id_fail_before_writes(self):
+        for problem in ("duplicate", "mixed", "parent", "wrong-type", "wrong-id", "media-folder-id"):
+            with self.subTest(problem=problem):
+                vendor = VendorModel()
+                vendor.libraries = [
+                    {"Name": "Movies", "Locations": ["/data/library/movies"], "ItemId": "a" * 32, "CollectionType": "movies"},
+                    {"Name": " TV", "Locations": ["/data/library/tv"], "ItemId": "b" * 32, "CollectionType": "tvshows"},
+                ]
+                if problem == "duplicate":
+                    vendor.libraries.append({**copy.deepcopy(vendor.libraries[0]), "Name": "Another", "ItemId": "c" * 32})
+                elif problem == "mixed":vendor.libraries[0]["Locations"].append("/other/movies")
+                elif problem == "parent":vendor.libraries[0]["Locations"] = ["/data/library"]
+                elif problem == "wrong-type":vendor.libraries[0]["CollectionType"] = "homevideos"
+                elif problem == "wrong-id":vendor.libraries[0]["ItemId"] = "not-a-real-library-id"
+                def transport(method, url, **kwargs):
+                    response = vendor(method, url, **kwargs)
+                    if problem == "media-folder-id" and urlsplit(url).path == "/Library/MediaFolders":
+                        response["Items"][0]["Id"] = "c" * 32
+                    return response
+                with self.assertRaises(integrations.Conflict):
+                    integrations._jellyfin(integrations._Run(config(), 2, transport, secrets, True))
+                self.assertFalse(any(method != "GET" for method, _, _, _ in vendor.calls))
+
+    def test_bazarr_partial_connection_writes_do_not_report_ready(self):
+        for service in ("sonarr", "radarr"):
+            for field, original in (("apikey", ""), ("ssl", True), ("base_url", "/old-target")):
+                with self.subTest(service=service, ignored_field=field):
+                    vendor = VendorModel()
+                    vendor.bazarr[service][field] = original
+                    vendor.bazarr["providers"] = ["existing-provider"]
+                    vendor.bazarr["languages"] = ["existing-language"]
+                    def transport(method, url, **kwargs):
+                        if method == "POST" and urlsplit(url).port == 6767:
+                            kwargs["form"] = {key: value for key, value in kwargs["form"].items()
+                                              if key != "settings-" + service + "-" + field}
+                        return vendor(method, url, **kwargs)
+                    result = integrations.configure_stage(config(), 2, request=transport, secret_resolver=secrets)
+                    self.assertFalse(result["ok"])
+                    self.assertTrue(any(row["name"] == "bazarr:starr" for row in result["errors"]), result)
+                    self.assertEqual(vendor.bazarr[service][field], original)
+                    self.assertEqual(vendor.bazarr["providers"], ["existing-provider"])
+                    self.assertEqual(vendor.bazarr["languages"], ["existing-language"])
+                    self.assertNotIn(secrets("sonarr_api_key"), json.dumps(result))
+
+    def test_bazarr_saved_key_requires_exact_readback_without_url_trimming(self):
+        vendor = VendorModel()
+        def transport(method, url, **kwargs):
+            result = vendor(method, url, **kwargs)
+            if method == "POST" and urlsplit(url).port == 6767:
+                vendor.bazarr["sonarr"]["apikey"] += "/"
+            return result
+        result = integrations.configure_stage(config(), 2, request=transport, secret_resolver=secrets)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(row["name"] == "bazarr:starr" for row in result["errors"]), result)
+
+    def test_bazarr_existing_other_starr_credential_is_never_overwritten(self):
+        vendor = VendorModel()
+        vendor.bazarr["sonarr"]["apikey"] = "existing-unrelated-key"
+        original = copy.deepcopy(vendor.bazarr)
+        result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertFalse(result["ok"])
+        self.assertEqual(vendor.bazarr, original)
+        self.assertFalse(any(method == "POST" and urlsplit(url).port == 6767
+                             for method, url, _, _ in vendor.calls))
+
     def test_qbit_verifies_before_any_starr_registration(self):
         vendor = VendorModel()
         vendor.prefs["current_network_interface"] = "eth0"
@@ -401,7 +518,11 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(vendor.delay_profiles["radarr"][0]["usenetDelay"], 30)
 
     def test_management_does_not_claim_enrollment_verified(self):
-        result = integrations.verify_stage(config(), 4, request=VendorModel(), secret_resolver=secrets)
+        from samurai_stack import management_setup
+        # This orchestration fixture must not inspect a real host's default
+        # /opt/samurai directory, including when run as an ordinary user.
+        with mock.patch.object(management_setup, "has_enrollment", return_value=False):
+            result = integrations.verify_stage(config(), 4, request=VendorModel(), secret_resolver=secrets)
         self.assertEqual(result["status"], "pending")
         self.assertFalse(result["ok"])
 

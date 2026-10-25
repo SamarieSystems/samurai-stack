@@ -345,7 +345,8 @@ class GuidedSetup:
             if code == 0 or manual_pending:
                 code, proof = self.invoke(['verify', str(stage)], 'Verifying this step...')
                 if code == 0 and proof.get('status') in {'verified', 'verified_with_manual_checks'}:
-                    self.say('Verified. This step is complete.')
+                    self.say('Application connections verified; source readiness is checked separately.'
+                             if stage == 2 else 'Verified. This step is complete.')
                     return True
                 result = proof
             self.report(result)
@@ -469,6 +470,102 @@ class GuidedSetup:
         self.say('File-size limits are shared application settings. Existing files stay in place; future grabs using other profiles are affected too.')
         if self.yes('Review the optional runtime-scaled size limits?', False):
             return reviewed_apply(True) is not False
+        return True
+
+    def media_naming(self, c):
+        self.say('Optional future-import naming: Jellyfin TVDb/TMDb folder IDs and filenames retaining quality, audio, codec and release group.')
+        self.say('This changes naming settings only. Existing title paths and files are not renamed, moved, imported or searched.')
+        directory = self._state_dir() / ('naming-review-' + uuid.uuid4().hex)
+        directory.mkdir(mode=0o700)
+        path = directory / 'plan.json'
+        code, document = self.invoke(['naming', 'plan', '--out', str(path)], 'Checking owned Starr settings and rendered naming examples...')
+        if code != 0 or not isinstance(document.get('review_hash'), str):
+            return False
+        services = document.get('services', {})
+        if services and all(item.get('action') == 'verify' for item in services.values()):
+            self.say('Future-import naming settings are already verified. Existing files were kept.')
+            return True
+        for service, item in services.items():
+            self.say('  ' + APP_NAMES.get(service, service) + ': ' + ', '.join(item.get('changes', {})))
+            for name, example in item.get('examples', {}).items():
+                if name in {'seriesFolderExample', 'singleEpisodeExample', 'movieFolderExample', 'movieExample'}:
+                    self.say('    ' + str(example))
+        self.say('Private reviewed naming settings: ' + str(path))
+        if not self.yes('Apply these naming settings for future imports and new title folders?', False):
+            self.say('Naming settings were kept. Resume ./setup 3 to review them later; no existing-file rename was requested.')
+            return True
+        code, result = self.invoke(['naming', 'apply', '--plan', str(path), '--accept-plan', document['review_hash']],
+                                   'Backing up the full original naming settings and applying the reviewed formats...')
+        if code != 0 or result.get('ok') is not True:
+            return False
+        code, result = self.invoke(['naming', 'verify'], 'Independently reading back future-import naming settings...')
+        if code != 0 or result.get('ok') is not True:
+            return False
+        self.say('Future-import naming settings saved and verified. Existing titles and files were kept.')
+        return True
+
+    def capacity_policy(self, c=None, *, automatic=False, after_torrents=False):
+        """Review native floors and, once local qBit exists, its pause watcher."""
+        from . import capacity
+        c = c or self.config()
+        saved = capacity._saved(c)
+        data_gib = saved['data_reserve_bytes'] // capacity.GIB if saved else 50
+        app_gib = saved['app_reserve_bytes'] // capacity.GIB if saved else 20
+        enabled = saved['qbit_guard'] if saved else False
+        ready = (c.get('features', {}).get('torrents') and c['hosts']['torrent'] == c['bind_address']
+                 and engine.compose_path(c, 3).exists())
+        if saved:
+            code, report = self.invoke(['capacity', 'verify'], 'Checking the saved free-space safeguards...')
+            if code == 0 and report.get('ok') is True:
+                self.say('Free-space safeguards verified: data ' + str(data_gib) + ' GiB, application storage '
+                         + str(app_gib) + ' GiB; qBit watcher ' + ('enabled.' if enabled else 'not enabled.'))
+                if automatic and not (after_torrents and ready and not enabled):
+                    return True
+        self.say('Optional free-space safeguards. Reserves are pause/import thresholds, not quotas; running work can overshoot.')
+        self.say('SAB pauses below its data reserve without automatic resume. Starr keeps free-space checks enabled; existing files are kept.')
+        self.say('The optional qBit watcher also checks application storage, stops only this installation\'s incomplete downloads and preserves seeders.')
+        if not self.yes('Review these safeguards now?', True):
+            self.say('Capacity settings were kept. Return with ./setup --capacity; no downloads were resumed.')
+            return True
+        def reserve(label, default):
+            while True:
+                value = self.read(label + ' in GiB [' + str(default) + ']: ').strip() or str(default)
+                if value.isascii() and value.isdigit() and 1 <= int(value) <= 1048576:
+                    return int(value)
+                self.say('Enter a whole GiB value from 1 to 1048576.')
+        data_gib = reserve('Media/download storage reserve', data_gib)
+        app_gib = reserve('Application storage reserve', app_gib)
+        if ready:
+            enabled = self.yes('Enable the owned qBit pause watcher for both reserves?', enabled or after_torrents)
+        elif not enabled:
+            self.say('The qBit watcher can be enabled after VPN/torrent setup. Application reserve is not enforced by native Starr/SAB floors.')
+        directory = self._state_dir() / ('capacity-review-' + uuid.uuid4().hex)
+        directory.mkdir(mode=0o700)
+        path = directory / 'plan.json'
+        arguments = ['capacity', 'plan', '--out', str(path), '--data-reserve-gib', str(data_gib),
+                     '--app-reserve-gib', str(app_gib), '--qbit-guard' if enabled else '--no-qbit-guard']
+        code, document = self.invoke(arguments, 'Measuring the backing filesystems and reviewing native application settings...')
+        if code != 0 or not isinstance(document.get('review_hash'), str):
+            return False
+        for role, item in document.get('capacity', {}).items():
+            self.say('  ' + role + ' storage: ' + format(item['available_bytes'] / capacity.GIB, '.1f') + ' GiB available of '
+                     + format(item['size_bytes'] / capacity.GIB, '.1f') + ' GiB.')
+        for service, item in document.get('native', {}).items():
+            self.say('  ' + APP_NAMES.get(service, service) + ': ' + json.dumps(item.get('after', {}), sort_keys=True))
+        self.say('  Data reserve: ' + str(data_gib) + ' GiB. Application reserve: ' + str(app_gib)
+                 + ' GiB. qBit watcher: ' + ('enabled.' if enabled else 'disabled.'))
+        self.say('Private review: ' + str(path))
+        if not self.yes('Apply these reviewed free-space safeguards and verify the saved settings?', False):
+            self.say('Capacity settings were kept. No downloads were resumed or deleted.')
+            return True
+        code, result = self.invoke(['capacity', 'apply', '--plan', str(path), '--accept-plan', document['review_hash']],
+                                   'Saving a private backup and applying only the reviewed safeguards...')
+        if code != 0 or result.get('ok') is not True:
+            return False
+        code, result = self.invoke(['capacity', 'verify'], 'Independently verifying native floors and the optional pause timer...')
+        if code != 0 or result.get('ok') is not True:
+            return False
+        self.say('Free-space safeguards verified. Freeing space never automatically resumes downloads; review and resume them deliberately.')
         return True
 
     def choose_storage(self):
@@ -628,6 +725,142 @@ class GuidedSetup:
         self.say('Usenet provider authentication passed. SAB is configured and its setup wizard is complete.')
         return True
 
+    def _indexer_report(self, c, report):
+        self.say('Indexer source checks, separate from container health:')
+        for source in report.get('sources', []):
+            self.say('  ' + source['name'] + ': ' + source['status'] + ' (' + source['protocol'] + ').')
+        for protocol, feature in (('usenet', 'usenet'), ('torrent', 'torrents')):
+            if not c['features'].get(feature):
+                continue
+            row = report.get('protocols', {}).get(protocol, {})
+            capabilities = ', '.join(name + '=' + ('yes' if row.get(key) else 'no')
+                                     for name, key in (('movies', 'movies'), ('TV', 'tv'), ('anime', 'anime')))
+            self.say('  ' + protocol + ': ' + str(row.get('tested_sources', 0)) + ' tested source(s); ' + capabilities + '.')
+        for protocol in report.get('missing_protocols', []):
+            self.say('  Needs attention: add or repair an enabled ' + protocol + ' source in Prowlarr.')
+        if report.get('missing_categories'):
+            self.say('  Needs attention: tested sources must advertise ' + ', '.join(report['missing_categories']) + ' categories.')
+        self.say('These checks do not download media or prove downstream sync, playback or the VPN kill switch.')
+
+    def indexer_sources(self, c):
+        from . import indexer_setup
+        self.say('Testing saved Prowlarr sources. Existing source settings and credentials will be kept.')
+        document = indexer_setup.plan(c)
+        report = document['readiness']
+        self._indexer_report(c, report)
+        if report.get('ok') is True:
+            self.say('Media accounts, connections and source checks passed. This setup step is complete.')
+            return True
+        if not report.get('missing_protocols') and not report.get('missing_categories'):
+            self.say('A saved enabled source is unhealthy or search-disabled. Repair it, or deliberately disable an unwanted source in Prowlarr, then rerun ./setup 3. No source was replaced.')
+            return False
+        saved = indexer_setup.saved_inputs(c)
+        options = {}
+        if c['features'].get('usenet'):
+            options.update({'1': 'NZBGeek', '2': 'Generic Newznab'})
+        if c['features'].get('torrents'):
+            options['3'] = 'Generic Torznab'
+        self.say('Optional source intake. NNTP is your download provider; this is the separate indexer/search account.')
+        for key, label in options.items():
+            self.say('  ' + key + '. Add ' + label)
+        for number, source in enumerate(saved, 1):
+            self.say('  r' + str(number) + '. Retry saved ' + source['label'] + ' at ' + source['base_url'])
+        choice = self.read('Choose one source or saved retry, Enter to pause: ').strip().lower()
+        input_id = None
+        if choice.startswith('r') and choice[1:].isascii() and choice[1:].isdigit():
+            number = int(choice[1:])
+            if 1 <= number <= len(saved):
+                input_id = saved[number - 1]['input_id']
+        if input_id is None and choice not in options:
+            self.say('Source setup remains pending. Existing services stay installed. Run ./setup 3 after adding/testing your authorized sources in Prowlarr, or to retry this intake.')
+            return False
+        if input_id is None:
+            if choice == '1':
+                source = {'preset': 'nzbgeek'}
+            else:
+                implementation = 'Newznab' if choice == '2' else 'Torznab'
+                label = self.read('Short source label, or Enter to pause: ').strip()
+                base_url = self.read('HTTPS indexer base URL, or Enter to pause: ').strip()
+                if not label or not base_url:
+                    return False
+                api_path = self.read('API path [/api]: ').strip() or '/api'
+                source = {'implementation': implementation, 'label': label, 'base_url': base_url, 'api_path': api_path}
+            needs_key = choice != '3' or self.yes('Does this Torznab source require an API key?', True)
+            source['api_key'] = self.private_input('Indexer API key') if needs_key else ''
+            if needs_key and source['api_key'] is None:
+                return False
+            profiles = [row for row in document.get('app_profiles', [])
+                        if row.get('enableAutomaticSearch') is True and row.get('enableInteractiveSearch') is True]
+            if len(profiles) != 1:
+                if not profiles:
+                    self.say('Enable automatic and interactive searching in your intended Prowlarr application profile, then rerun ./setup 3. No source was added.')
+                    return False
+                self.say('Choose an existing Prowlarr application profile; its settings will be kept:')
+                for row in profiles:self.say('  ' + str(row['id']) + '. ' + row['name'])
+                selected = self.read('Application profile ID, or Enter to pause: ').strip()
+                if not selected.isascii() or not selected.isdigit() or int(selected) not in {row['id'] for row in profiles}:
+                    return False
+                source['app_profile_id'] = int(selected)
+            input_id = indexer_setup.save_input(c, source)
+        document = indexer_setup.plan(c, input_id)
+        action = document['action']
+        self.say('Reviewed source: ' + action['name'] + ' at ' + action['base_url'] + action['api_path'] + '.')
+        self.say('Only this source may be added. Existing indexers, application profiles and media are kept.')
+        write_json(self._state_dir() / ('indexer-plan-' + uuid.uuid4().hex + '.json'), document)
+        if not self.yes('Apply this reviewed source setup?', True):
+            self.say('Private input saved for retry; no source was added. Run ./setup 3 to resume.')
+            return False
+        report = indexer_setup.apply(c, document)
+        write_json(self._state_dir() / ('indexer-check-' + uuid.uuid4().hex + '.json'), report)
+        self._indexer_report(c, report)
+        if report.get('ok') is not True:
+            self.say('Source checks remain pending. Run ./setup 3 to add the next missing source or review the specific failed source above. Nothing was removed.')
+            return False
+        self.say('Media accounts, connections and source checks passed. Test one legal download/import and playback next.')
+        return True
+
+    def subtitles(self, c):
+        from . import subtitle_setup
+        self.say('Optional English subtitles for newly added media, separate from existing-library backfill.')
+        receipt = no_symlinks(Path(c['install_root']) / 'state/subtitle-setup.json')
+        document = None
+        if receipt.exists():
+            saved = subtitle_setup._receipt(c, receipt)
+            if saved.get('state') == 'verified':
+                document = subtitle_setup.plan(c, saved['providers'])
+                if not document.get('repair_profile'):
+                    report = subtitle_setup.verify(c)
+                    if report.get('ok') is not True or report.get('scope') != 'future_additions_only':
+                        raise SafetyError('Saved subtitle policy did not pass future-only verification')
+                    self.say('Your saved subtitle policy passed readback. Its provider choices were kept.')
+                    for warning in report.get('notifications', []):self.say('  Needs attention: ' + warning)
+                    self.say('English embedded tracks satisfy the profile. Existing SRT/ASS files are kept; no existing titles were assigned or searched.')
+                    self.say('Provider registration was checked. A subtitle download has not been tested.')
+                    return True
+            providers = saved['providers']
+        else:
+            providers = subtitle_setup.DEFAULT_PROVIDERS
+        document = document or subtitle_setup.plan(c, providers)
+        if document.get('repair_profile'):
+            self.say('This repairs the exact earlier installer-created English profile item keys. A complete private before snapshot is saved first; other profiles and assigned title IDs are kept.')
+        self.say('Selected providers: ' + ', '.join(document['providers']) + '. The default Gestdown/ YIFY selection is account-free and covers TV and films.')
+        self.say('This sets the English profile only for future additions, counts embedded subtitles, and uses one job at a time.')
+        self.say('Existing profiles and subtitle files are kept. Upgrades, AI, postprocessing and scheduled backlog searches are disabled.')
+        self.say('The selected provider list replaces the enabled-provider selection; saved provider credentials are kept.')
+        self.say('Requires 50 GiB free on media storage and 20 GiB on application storage. No current title will be assigned or searched.')
+        write_json(self._state_dir() / ('subtitle-plan-' + uuid.uuid4().hex + '.json'), document)
+        if not self.yes('Apply this optional future-only English subtitle policy?', True):
+            self.say('Subtitle policy was deferred. Media setup can continue; rerun ./setup 3 to review it later.')
+            return True
+        report = subtitle_setup.apply(c, document)
+        if report.get('ok') is not True or report.get('scope') != 'future_additions_only':
+            raise SafetyError('Subtitle setup did not confirm the reviewed future-only policy')
+        write_json(self._state_dir() / ('subtitle-check-' + uuid.uuid4().hex + '.json'), report)
+        self.say('Future English subtitle policy saved and verified. Existing media and subtitle files were kept.')
+        for warning in report.get('notifications', []):self.say('  Needs attention: ' + warning)
+        self.say('Provider registration was checked. A subtitle download has not been tested, and existing-library backfill was not run.')
+        return True
+
     def media(self):
         c = self.config()
         if not self.install(c, 2):
@@ -647,7 +880,15 @@ class GuidedSetup:
         else:
             self.say('Optional HD/original-audio profiles are available from p in ./setup; existing profiles were kept.')
         self.say('Connecting the media applications automatically...')
-        return self.wire(2)
+        if not self.wire(2):
+            return False
+        if not self.media_naming(c):
+            return False
+        if not self.capacity_policy(c, automatic=True):
+            return False
+        if not self.subtitles(c):
+            return False
+        return self.indexer_sources(c)
 
     def torrents(self):
         c = self.config()
@@ -708,6 +949,8 @@ class GuidedSetup:
             self.say('Password: ' + engine.read_secret(c, 'qbit_password').strip())
         passed = self.wire(3)
         if passed:
+            if not self.capacity_policy(c, automatic=True, after_torrents=True):
+                return False
             self.say('Paste a legal test magnet in qBit. Manual files stay in downloads/torrents/manual on the data share.')
             self.say('Before bulk use, test a real download, import/playback and controlled VPN interruption/recovery.')
             self.say('Configuration verification does not claim an active kill-switch test.')
@@ -771,19 +1014,53 @@ class GuidedSetup:
         return updated
 
     def management(self):
+        from . import management_setup
         c = self.config()
         if not self.install(c, 4):
             return False
         self.endpoints(c, 4)
-        self.say('Create the management administrator accounts, add monitors, and send/receive a test notification.')
-        self.say('These interfaces stay on your trusted LAN or private VPN. Dockge controls this guest only.')
-        # The engine still records the explicit manual checklist separately
-        # from live frontend/API verification. No hidden automatic attestation.
-        for check in engine.MANUAL_CHECKS[4]:
-            self.say('  - ' + check)
-        if not self.yes('Have ALL applicable checklist items actually been tested?', False):
+        document = management_setup.plan(c, claim_unconfigured=True)
+        creating = [name for name, row in document['apps'].items() if row['action'] == 'create_first_administrator']
+        supplied = None
+        saved = engine.secret_path(c, 'management_credentials.json')
+        if saved.exists():
+            self.say('Verifying the saved management login. Existing accounts will not be reset.')
+        else:
+            media = engine.secret_path(c, 'onboarding_credentials.json')
+            if len(creating) == len(management_setup.SERVICES) and media.exists():
+                from .onboarding import _private_json
+                value = _private_json(media)
+                supplied = {'username': value.get('admin_username'), 'password': value.get('admin_password')}
+                self.say('Using the saved media administrator for these new management accounts.')
+            else:
+                self.say('Enter the management administrator login. Existing owners must use their current password; no password is reset.')
+                username = self.account_name('Management administrator')
+                if username is None:
+                    return False
+                while True:
+                    password = self.private_input('Management administrator password')
+                    if password is None:
+                        return False
+                    repeated = self.private_input('Repeat management administrator password')
+                    if password != repeated:
+                        self.say('Passwords differ; nothing was saved.')
+                    elif not 8 <= len(password) <= 256 or any(ord(char) < 32 or ord(char) == 127 for char in password):
+                        self.say('Use 8-256 characters without control characters. Spaces are preserved.')
+                    else:
+                        supplied = {'username': username, 'password': password}
+                        break
+        if creating:
+            self.say('Create only the verified unconfigured owners: ' + ', '.join(creating) + '.')
+            self.say('Add missing named service-listener monitors. Existing owners and custom monitors are preserved.')
+            if not self.yes('Complete this reviewed management setup?', True):
+                return False
+        result = management_setup.apply(c, document, document['review_hash'], supplied)
+        write_json(self._state_dir() / ('management-' + uuid.uuid4().hex + '.json'), result)
+        if result.get('ok') is not True:
             return False
-        engine.attest(c, 4, 'ENROLLMENT COMPLETE')
+        self.say('Management logins and owned stack/monitor readback passed. These checks monitor private TCP listeners.')
+        self.say('Notifications are optional and are not configured or delivery-tested by this step.')
+        self.say('Interfaces remain private; Dockge controls this guest only. Homarr, if enabled, still needs its own account.')
         return self.wire(4)
 
     def extras(self):
@@ -845,6 +1122,7 @@ class GuidedSetup:
                 self.say('  ' + str(number) + '. ' + label + ' [' + status + ']')
             self.say('  h. Check/enable hardlinks in existing Sonarr and Radarr')
             self.say('  p. Review optional quality, audio and file-size policy')
+            self.say('  c. Review free-space safeguards and optional qBit pause watcher')
             self.say('  a. Verify and accept account directories after a real appdata restore')
             self.say('  r. Show read-only installation recovery inventory')
             self.say('Saved statuses show the last setup check, not live service monitoring.')
@@ -869,6 +1147,12 @@ class GuidedSetup:
                 except (SafetyError, OSError, ValueError, RuntimeError) as exc:
                     self.say('Profile setup paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
                 continue
+            if value in {'c', 'capacity'}:
+                try:
+                    self.capacity_policy()
+                except (SafetyError, OSError, ValueError, RuntimeError) as exc:
+                    self.say('Capacity setup paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
+                continue
             if not value:
                 value = str(default)
             if value in {'a', 'restore-accounts'}:
@@ -878,7 +1162,7 @@ class GuidedSetup:
                     self.say('Account restore paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
                 continue
             if value not in {'1', '2', '3', '4', '5', '6'}:
-                self.say('Choose a number from 1 to 6, h for hardlinks, p for profiles, a for restored accounts, r for recovery, or q.')
+                self.say('Choose a number from 1 to 6, h for hardlinks, p for profiles, c for capacity, a for restored accounts, r for recovery, or q.')
                 continue
             try:
                 self.step(int(value))
@@ -904,13 +1188,14 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
     parser.add_argument('--quality-profiles', action='store_true', help='Review optional HD/original-audio and size policy only')
+    parser.add_argument('--capacity', action='store_true', help='Review native free-space thresholds and the optional owned qBit pause watcher')
     parser.add_argument('--restore-accounts', action='store_true', help='Review account directory identity after a verified backup restore')
     args = parser.parse_args(argv)
-    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles or args.restore_accounts):
+    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles or args.restore_accounts or args.capacity):
         parser.error('Use --fresh alone to start a new blank phases 1-6 wizard')
-    if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles or args.restore_accounts):
+    if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles or args.restore_accounts or args.capacity):
         parser.error('Choose --recover alone; it never runs an installation step')
-    if args.choose_storage and (args.step or args.hardlinks or args.quality_profiles or args.restore_accounts):
+    if args.choose_storage and (args.step or args.hardlinks or args.quality_profiles or args.restore_accounts or args.capacity):
         parser.error('Choose --choose-storage alone, then resume the numbered step')
     if args.choose_storage and args.config is None:
         parser.error('--choose-storage requires --config /path/to/site.json so automatic recovery cannot register the old storage choice first')
@@ -920,6 +1205,8 @@ def main(argv=None):
         parser.error('Choose --quality-profiles alone, not with another maintenance action')
     if args.restore_accounts and (args.step or args.hardlinks or args.quality_profiles):
         parser.error('Choose --restore-accounts alone, not with another maintenance action')
+    if args.capacity and (args.step or args.hardlinks or args.quality_profiles or args.restore_accounts):
+        parser.error('Choose --capacity alone, not with another maintenance action')
     if not sys.platform.startswith('linux') or os.geteuid() != 0 or Path('/etc/pve').exists():
         print('Run ./setup as administrator inside the intended Linux VM, not on the Proxmox host.', file=sys.stderr)
         return 1
@@ -951,6 +1238,8 @@ def main(argv=None):
             return 0 if ui.hardlinks() else 2
         if args.quality_profiles:
             return 0 if ui.media_profiles() else 2
+        if args.capacity:
+            return 0 if ui.capacity_policy() else 2
         if args.restore_accounts:
             return 0 if ui.restored_accounts() else 2
         if args.step:

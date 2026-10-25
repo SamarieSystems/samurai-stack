@@ -5,12 +5,12 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.2.0 release candidate.** Start with a new supported Linux VM and a dedicated test directory. Recorded disposable-VM checks cover the supported installer paths. Commercial VPN interruption/recovery, provider downloads, playback and backup restoration still require commissioning on the target installation. See [validation](docs/VALIDATION.md) and [the release gates](docs/ROADMAP.md) for the evidence and remaining limits.
+**0.2.0.** A staged private media-server installer for the documented Linux guest path, including CPU-only machines. Recorded checks cover real accounts, imports, restores, playback and controlled VPN failure/recovery, with their exact scope in [validation](docs/VALIDATION.md). Commission each new installation's storage, provider accounts, playback and notification delivery before handing it over. See [supported scope](docs/ROADMAP.md) for the remaining boundaries.
 
 ## Start here
 
 Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
-`SHA256SUMS` from the [release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3).
+`SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0).
 Copy both files into the same directory in the VM, open a terminal there, then run:
 
 ```sh
@@ -40,7 +40,7 @@ checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.sh` from the
-[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3),
+[0.2.0 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0),
 check its supplied `SHA256SUMS`, then run as root:
 
 ```sh
@@ -63,7 +63,7 @@ If the machine still runs Windows or has important files on its disks, first cho
 | **2. Connect storage** | Lists suitable mounted local filesystems or guides a dedicated NFS export. Reviews the backing mount and a new empty media directory, then verifies access and prepares the data tree. |
 | **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls administrator and separate everyday viewer access, saves private API keys, enables hardlinks, selects the owned Jellyfin libraries in Seerr and connects the apps. Usenet setup tests verified TLS and NNTP authentication in the terminal. |
 | **4. Set up VPN torrents** | qBittorrent behind Gluetun, protocol-specific hidden credential prompts, normal magnet entry and application connections. |
-| **5. Set up management** | Dockge and Uptime Kuma, with optional Homarr. Account creation and a delivered notification still need your input. |
+| **5. Set up management** | Dockge/Kuma terminal owner enrollment or existing-owner authentication, with named private TCP monitors. Optional Homarr and notification delivery have separate checks. |
 | **6. Add photos or music** | Choose Immich or Navidrome/slskd, with optional Music Assistant. Add these when you can finish their account, backup or playback checks. |
 
 Run `./setup 3` to open media directly, or `./setup 4` to return to VPN torrents. These are **guided menu numbers**; the advanced engine has separate stage IDs. The installer handles that mapping.
@@ -74,6 +74,17 @@ New media accounts can opt into reviewed 720p/1080p original-audio profiles
 during setup. Use `./setup --quality-profiles` or menu **p** to review this
 separately. Existing profiles, defaults and media keep their settings. Global
 size-definition changes have a separate review. See [Media profiles](docs/MEDIA-PROFILES.md).
+
+Step 3 also offers [future-import naming](docs/MEDIA-NAMING.md), an optional
+[English subtitle policy](docs/SUBTITLES.md) and private
+[indexer intake/readiness](docs/INDEXERS.md). Existing media is not renamed or
+backfilled, and source/provider registration is separate from actual delivery.
+
+Use `./setup --capacity` or menu **c** to review free-space safeguards. The
+default suggestion is 50 GiB for data and 20 GiB for application storage,
+with native Starr/SAB checks and an optional owned qBit pause watcher after
+VPN setup. These are thresholds, not quotas; downloads never automatically
+resume. See [Capacity safeguards](docs/CAPACITY.md).
 
 Start with CPU playback. GPU passthrough, guest drivers and a real transcode test remain deliberate hardware work. One compact application VM is the shortest first rollout. Separate VMs need the same installation identity and shared storage configuration; follow [the advanced multi-VM instructions](docs/ADVANCED.md#several-vms-one-installation).
 

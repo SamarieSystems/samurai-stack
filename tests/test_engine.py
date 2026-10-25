@@ -589,6 +589,7 @@ class ObsoleteUnitIntegrationTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(engine, "_new_directory"))
             stack.enter_context(mock.patch.object(catalog, "stage_directories", return_value=[]))
             stack.enter_context(mock.patch.object(engine, "prepare_secrets"))
+            stack.enter_context(mock.patch("samurai_stack.management_setup.reserve_fresh"))
             stack.enter_context(mock.patch.object(engine, "env_files"))
             stack.enter_context(mock.patch.object(engine, "pin_images", return_value={"services": {"demo": {}}}))
             unit = stack.enter_context(mock.patch.object(engine, "install_unit", return_value=self.unit.name))

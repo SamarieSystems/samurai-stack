@@ -52,11 +52,17 @@ connection allowance and provider service credentials. It performs an actual
 authenticated connection test with certificate verification enabled and
 completes SAB's wizard. Existing configured servers are tested and preserved.
 No browser account wizard or manual API-key paste is required for the supported
-media setup. Choosing indexer accounts, subtitle providers/languages and quality
-profiles remains an operator decision. New Sonarr/Radarr accounts can opt into
+media setup. The same step tests existing enabled indexers and offers hidden,
+reviewed NZBGeek/Newznab/Torznab intake when selected-protocol coverage is missing;
+see [source readiness](INDEXERS.md). Choosing provider accounts, subtitle
+providers/languages and quality profiles remains an operator decision.
+New Sonarr/Radarr accounts can opt into
 the [reviewed HD/original-audio preset](MEDIA-PROFILES.md); existing settings
-are preserved. These choices and a real
-download/import/playback test still need attention after API wiring passes.
+are preserved. A separate [future-import naming review](MEDIA-NAMING.md) offers
+Jellyfin title IDs and metadata-rich filenames without renaming existing media.
+An optional [English subtitle policy](SUBTITLES.md) handles future additions
+without bulk backfill. These choices and a real download/import/playback test
+still need attention after API wiring passes.
 
 Existing configured accounts are checked without replacing their credentials
 or permissions. An existing Jellyfin or SAB login may be requested to authorize
@@ -67,7 +73,7 @@ enough. Unknown state pauses for review, not an owner reset.
 
 The shortest update for an existing source ZIP uses the portable
 `samurai-setup.sh` asset from the
-[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3).
+[0.2.0 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0).
 Verify it against the supplied `SHA256SUMS`, then run as root on the media VM:
 
 ```sh
@@ -78,8 +84,9 @@ No Git installation or source-tree replacement is required. Default discovery
 uses the trusted saved installation. For an older release not yet registered,
 use `bash /path/to/samurai-setup.sh --config /actual/old/site.json 3`.
 Its existing saved paths and credentials are reused. Media wiring also enables
-only the two deployment-named Jellyfin movie/TV libraries in Seerr,
-after path/ID verification, while retaining unrelated selections. It does not
+only the two canonical Jellyfin movie/TV libraries in Seerr,
+after path/type/ID verification, while preserving custom display names and
+unrelated selections. It does not
 start library scans or request media.
 
 To resume with updated source, keep existing configuration, deployment ID,
@@ -152,7 +159,7 @@ matching the running services.
 
 The portable release asset also performs this focused repair on machines
 using an older source ZIP. Obtain `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.3)
+[0.2.0 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0)
 and verify the checksum before running it inside the media VM:
 
 ```sh

@@ -106,11 +106,38 @@ def parser():
     profiles.add_argument("--out", default="profiles-plan.json")
     profiles.add_argument("--plan")
     profiles.add_argument("--accept-plan")
+    naming = commands.add_parser("naming", help="Review future-import filenames and Jellyfin folder IDs; never rename existing files")
+    naming.add_argument("action", choices=["plan", "apply", "verify"])
+    naming.add_argument("--out", default="naming-plan.json")
+    naming.add_argument("--plan")
+    naming.add_argument("--accept-plan")
     restored = commands.add_parser("restore-accounts", help="Reauthorize verified restored account directories; never create accounts")
     restored.add_argument("action", choices=["plan", "apply", "verify"])
     restored.add_argument("--out", default="restore-accounts-plan.json")
     restored.add_argument("--plan")
     restored.add_argument("--accept-plan")
+    indexers = commands.add_parser("indexers", help="Test source readiness or apply one reviewed private Newznab/Torznab intake")
+    indexers.add_argument("action", choices=["plan", "apply", "verify"])
+    indexers.add_argument("--input-id", help="Opaque saved private input ID from guided step 3; never an API key")
+    indexers.add_argument("--out", default="indexers-plan.json")
+    indexers.add_argument("--plan")
+    indexers.add_argument("--accept-plan")
+    subtitles = commands.add_parser("subtitles", help="Review future English subtitle defaults; no existing-library backfill")
+    subtitles.add_argument("action", choices=["plan", "apply", "verify"])
+    subtitles.add_argument("--providers", help="Plan-only comma-separated supported providers; default gestdown,yifysubtitles")
+    subtitles.add_argument("--out", default="subtitles-plan.json")
+    subtitles.add_argument("--plan")
+    subtitles.add_argument("--accept-plan")
+    capacity = commands.add_parser("capacity", help="Review free-space thresholds and an optional owned qBittorrent pause watcher")
+    capacity.add_argument("action", choices=["plan", "apply", "verify"])
+    capacity.add_argument("--data-reserve-gib", type=int, help="Whole GiB reserve on media/download storage; plan only, default 50")
+    capacity.add_argument("--app-reserve-gib", type=int, help="Whole GiB reserve on application storage; plan only, default 20")
+    watcher = capacity.add_mutually_exclusive_group()
+    watcher.add_argument("--qbit-guard", dest="qbit_guard", action="store_true", default=None, help="Review the optional owned qBittorrent pause timer")
+    watcher.add_argument("--no-qbit-guard", dest="qbit_guard", action="store_false", help="Review disabling this installation's existing capacity timer")
+    capacity.add_argument("--out", default="capacity-plan.json")
+    capacity.add_argument("--plan")
+    capacity.add_argument("--accept-plan")
     for name in ["plan", "apply", "configure", "verify", "status", "access"]:
         cmd = commands.add_parser(name)
         cmd.add_argument("stage", type=int, choices=sorted(engine.STAGES))
@@ -159,6 +186,20 @@ def main(argv=None):
                     if document.get("review_hash") != args.accept_plan:
                         raise SafetyError("Profile reviewed plan hash does not match")
                     result = media_profiles.apply(c, document)
+            elif args.command == "naming":
+                from . import media_naming
+                if args.action == "plan":
+                    result = media_naming.plan(c)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = media_naming.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Naming apply requires --plan and --accept-plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get("review_hash") != args.accept_plan:
+                        raise SafetyError("Naming reviewed plan hash does not match")
+                    result = media_naming.apply(c, document)
             elif args.command == "restore-accounts":
                 from . import restore_accounts
                 if args.action == "plan":
@@ -173,6 +214,57 @@ def main(argv=None):
                     if document.get('review_hash') != args.accept_plan:
                         raise SafetyError("Account restore reviewed plan hash does not match")
                     result = restore_accounts.apply(c, document)
+            elif args.command == "indexers":
+                from . import indexer_setup
+                if args.action != "plan" and args.input_id is not None:
+                    raise SafetyError("--input-id belongs only to an indexer plan; credentials are entered in ./setup 3")
+                if args.action == "plan":
+                    result = indexer_setup.plan(c, args.input_id)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = indexer_setup.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Indexer apply requires --plan and --accept-plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get('review_hash') != args.accept_plan:
+                        raise SafetyError("Indexer reviewed plan hash does not match")
+                    result = indexer_setup.apply(c, document)
+            elif args.command == "subtitles":
+                from . import subtitle_setup
+                if args.action != "plan" and args.providers is not None:
+                    raise SafetyError("Subtitle provider choices belong only in the reviewed plan")
+                if args.action == "plan":
+                    providers = args.providers.split(',') if args.providers is not None else subtitle_setup.DEFAULT_PROVIDERS
+                    result = subtitle_setup.plan(c, providers)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = subtitle_setup.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Subtitle apply requires --plan and --accept-plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get("review_hash") != args.accept_plan:
+                        raise SafetyError("Subtitle reviewed plan hash does not match")
+                    result = subtitle_setup.apply(c, document)
+            elif args.command == "capacity":
+                from . import capacity
+                if args.action != "plan" and any(value is not None for value in
+                        (args.data_reserve_gib, args.app_reserve_gib, args.qbit_guard)):
+                    raise SafetyError("Capacity reserve and watcher choices belong only in the reviewed plan")
+                if args.action == "plan":
+                    result = capacity.plan(c, data_reserve_gib=50 if args.data_reserve_gib is None else args.data_reserve_gib,
+                        app_reserve_gib=20 if args.app_reserve_gib is None else args.app_reserve_gib, qbit_guard=args.qbit_guard)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = capacity.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Capacity apply requires --plan and --accept-plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get("review_hash") != args.accept_plan:
+                        raise SafetyError("Capacity reviewed plan hash does not match")
+                    result = capacity.apply(c, document)
             elif args.command == "inspect":
                 result = {"platform": sys.platform, "cpus": os.cpu_count(), "role": c.get("role", "all"),
                           "storage": storage.check_mount(c), "gpu_mode": c["hardware"]["acceleration"]}
