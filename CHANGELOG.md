@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Identify active installation-DVD APT sources before host preparation and
+  explain how to disable only that entry while keeping online OS mirrors.
+  Inspection never rewrites the source configuration.
+- Retain bounded private command output, including APT failures and dependency
+  simulations. Guided errors explain known refusals and point directly to the
+  readable command log instead of hiding the cause behind a generic failure.
+- Give a newly created Docker keyring directory the traversal permissions APT
+  needs even under the bootstrap's private umask; preserve existing directories.
+
 ## 0.1.0-alpha.3 - 2026-10-25
 
 - Add `./setup`: a guided six-step menu with direct `./setup NUMBER` resume.

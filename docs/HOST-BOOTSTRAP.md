@@ -58,6 +58,34 @@ or run a test container. If the guest agent fails, confirm Proxmox exposes its
 virtio guest-agent channel, then inspect `journalctl -u qemu-guest-agent` in the
 guest. The script does not reboot or force-stop the VM to fix that channel.
 
+## APT failures
+
+An active `cdrom:` source from an installation DVD can make `apt-get update`
+return 100 even when all online mirrors work. Inspection detects that source
+before applying changes. Preserve a backup, disable only the installation-media
+entry, and keep the online OS mirrors. In a `.list` file, comment its entire
+`deb cdrom:` line. In a `.sources` file, set `Enabled: no` in the stanza for
+that source; do not disable unrelated network stanzas. Then run `apt-get update`
+and restart guided step 1, or review a fresh CLI plan. An empty
+`/etc/apt/sources.list.d` does not itself indicate a problem.
+
+For other package failures, exit 100 alone does not identify the cause. Apply
+captures each command's output in private `.log` files under
+`/var/lib/samurai-stack/host-bootstrap/backup-<id>/commands/`, with structured
+`.json` companions. The failure points to the exact readable log. Output is
+limited to the last 128 KiB of each stream and the log states when it was
+truncated. A successful dependency simulation is also retained when its proposed
+upgrades/removals cause setup to refuse the install. These files can contain
+private repository details, so review them before sharing.
+
+Alpha 3 and earlier discarded the underlying command output. An old attempt's
+generic error cannot recover that missing output. Run `apt-get update` directly
+to inspect repository errors; it refreshes indexes without installing packages.
+Do not disable signature verification to make a repository error disappear.
+
+See Debian's [APT source formats](https://manpages.debian.org/trixie/apt/sources.list.5.en.html)
+for the one-line and deb822 configuration rules.
+
 After bootstrap, check guest initialization from your SSH session:
 
 ```bash

@@ -150,6 +150,76 @@ class SetupHostTests(unittest.TestCase):
         self.assertNotIn('synthetic private vendor payload', '\n'.join(self.messages))
         self.confirm.assert_not_called()
 
+    def test_known_bootstrap_refusals_have_specific_guidance_without_raw_payloads(self):
+        cases = [
+            ('Active APT installation-media source detected; review the source configuration',
+             'disable only the active cdrom source'),
+            ('Guest OS, machine, script, packages or apt sources changed; review a new --plan before retrying',
+             'guest changed after plan review'),
+            ('Guest state changed while waiting for the apply lock; review a new plan',
+             'stale plan was not applied'),
+            ('apt-get failed with exit 100; inspect its local logs. Existing files and data were retained.',
+             'code alone does not identify the cause'),
+            ('APT would remove or upgrade an existing package; resolve dependencies manually instead',
+             'private dependency simulation'),
+            ('Docker key differs from the pinned official artifact; review upstream key rotation instead of accepting it automatically',
+             'was not trusted'),
+            ('Plan integrity or --accept-plan does not match', 'integrity check'),
+        ]
+        for reason, expected in cases:
+            with self.subTest(reason=reason):
+                result = subprocess.CompletedProcess([], 1, 'synthetic-private-stdout',
+                    'synthetic-private-vendor-before\nbootstrap refused: ' + reason + ' synthetic-private-suffix\n')
+                with self.assertRaises(setup_host.SetupHostError) as captured:
+                    setup_host._object(result, 'Host preparation')
+                message = str(captured.exception)
+                self.assertIn(expected, message)
+                self.assertNotIn('synthetic-private', message)
+
+    def test_unknown_prefixed_or_vendor_errors_are_never_shown_as_public_reasons(self):
+        for diagnostic in ('synthetic-private-vendor-error',
+                           'bootstrap refused: synthetic-private-unknown-reason',
+                           'vendor: bootstrap refused: apt-get failed with exit 100; synthetic-private-detail'):
+            with self.subTest(diagnostic=diagnostic), self.assertRaises(setup_host.SetupHostError) as captured:
+                setup_host._object(subprocess.CompletedProcess([], 1, '', diagnostic), 'Host preparation')
+            self.assertEqual('Host preparation was refused; inspect the private bootstrap logs before retrying', str(captured.exception))
+
+    def test_known_failure_exposes_only_validated_readable_command_log_path(self):
+        path = '/var/lib/samurai-stack/host-bootstrap/backup-' + 'a' * 32 + '/commands/0001-apt-get-update.log'
+        reason = 'bootstrap refused: apt-get failed with exit 100; inspect its local logs.'
+        for target, shown in ((path, True), (path + '; echo synthetic-private', False),
+                              ('/tmp/synthetic-private.log', False), (path.replace('.log', '.json'), False)):
+            with self.subTest(target=target), self.assertRaises(setup_host.SetupHostError) as captured:
+                setup_host._object(subprocess.CompletedProcess([], 1, '',
+                    reason + ' Private command diagnostic: ' + target + '\n'), 'Host preparation')
+            message = str(captured.exception)
+            self.assertEqual(shown, 'Read the command output with: cat ' in message)
+            if shown:
+                self.assertIn('cat ' + path, message)
+            self.assertNotIn('synthetic-private', message)
+
+    def test_specific_failure_guidance_keeps_original_private_attempt_evidence(self):
+        original = self.fixture
+        diagnostic = ('bootstrap refused: apt-get failed with exit 100; inspect its local logs. '
+                      'Existing files and data were retained.\nsynthetic-private-package-detail\n')
+
+        def fail_apply(argv, attempt, phase, emit):
+            result = original(argv, attempt, phase, emit)
+            if phase == 'apply':
+                target = attempt / 'apply.stderr'; target.write_text(diagnostic); target.chmod(0o600)
+                return subprocess.CompletedProcess(argv, 1, '', diagnostic)
+            return result
+
+        self.fixture = fail_apply
+        with self.assertRaises(setup_host.SetupHostError) as captured:
+            self.prepare()
+        self.assertIn('APT returned exit 100', str(captured.exception))
+        self.assertNotIn('synthetic-private-package-detail', str(captured.exception))
+        attempt = self.attempts()[0]
+        self.assertEqual(diagnostic, (attempt / 'apply.stderr').read_text())
+        self.assertEqual('failed', json.loads((attempt / 'result.json').read_text())['status'])
+        self.assertTrue((attempt / 'plan.json').exists())
+
     def test_nonroot_or_noninteractive_public_entry_refuses_before_execution(self):
         with mock.patch.object(setup_host.platform, 'system', return_value='Linux'), \
              mock.patch.object(setup_host.os, 'geteuid', return_value=1000, create=True), \

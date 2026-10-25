@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import signal
 import subprocess
 import sys
@@ -71,8 +72,63 @@ def _run_command(argv, attempt: Path, phase: str, emit=print, *, heartbeat=15):
             handle.close()
 
 
+def _refusal_hint(stderr):
+    """Translate known bootstrap refusals without displaying vendor payloads.
+
+    Even a prefixed stderr line is untrusted. Match only known fixed reasons
+    and return installer-owned prose; never interpolate its suffix or raw text.
+    """
+    prefix = 'bootstrap refused: '
+    reasons = [line[len(prefix):] for line in (stderr or '').splitlines() if line.startswith(prefix)]
+    for reason in reversed(reasons):
+        if reason.startswith('Active APT installation-media source detected;'):
+            return ('APT is still configured to read the installation DVD/CD-ROM. In /etc/apt/sources.list '
+                    'or /etc/apt/sources.list.d, disable only the active cdrom source: comment its deb line '
+                    'or set Enabled: no in its .sources stanza. Keep the online OS mirrors, run apt-get update, '
+                    'then rerun Prepare host. Setup has not changed the sources')
+        if reason.startswith(('Guest OS, machine, script, packages or apt sources changed;',
+                              'Guest state changed while waiting for the apply lock;')):
+            return ('The guest changed after plan review. Rerun Prepare host to generate a fresh plan. '
+                    'The stale plan was not applied')
+        if reason.startswith('Plan integrity or --accept-plan does not match'):
+            return ('The saved review failed its integrity check. Rerun Prepare host to generate a new plan; '
+                    'the previous private evidence was kept')
+        if reason.startswith('apt-get failed with exit 100;'):
+            return ('APT returned exit 100 during a repository or package operation. That code alone does not '
+                    'identify the cause. Review the private package-manager diagnostic before changing '
+                    'repository settings or dependencies')
+        if reason.startswith('APT would remove or upgrade an existing package;'):
+            return ('APT proposed removing or upgrading an existing package, so that installation was refused. '
+                    'Review the private dependency simulation and resolve the package or repository conflict '
+                    'before rerunning Prepare host')
+        if reason.startswith('Docker key differs from the pinned official artifact;'):
+            return ('The downloaded Docker signing key did not match the pinned official artifact and was not '
+                    'trusted. Verify the current official key against the installer pin; if the key rotated, '
+                    'use a reviewed installer update')
+        if reason.startswith('Another bootstrap apply is already running'):
+            return ('Another host preparation process is running. Let it finish before rerunning Prepare host')
+        if reason.startswith('Another Docker repository is already configured;'):
+            return ('An existing Docker repository needs review. Setup did not add a duplicate source; '
+                    'inspect that repository configuration before rerunning Prepare host')
+    return None
+
+
 def _object(result, label):
     if result.returncode:
+        hint = _refusal_hint(result.stderr)
+        if hint:
+            # Expose only the exact installer-owned diagnostic namespace. Raw
+            # subprocess output can contain repository credentials or terminal
+            # control sequences and must stay private.
+            diagnostic = re.search(
+                r' Private command diagnostic: '
+                r'(/var/lib/samurai-stack/host-bootstrap/backup-[0-9a-f]{32}'
+                r'/commands/[0-9]{4,}-(?:apt-get|curl|systemctl|docker|command)'
+                r'-(?:update|install|simulate-install|download-signing-key|enable|start|is-active|engine-info|compose-version|other)\.log)$',
+                result.stderr or '', re.MULTILINE)
+            if diagnostic:
+                hint += '. Read the command output with: cat ' + diagnostic.group(1)
+            raise SetupHostError(label + ' stopped: ' + hint)
         raise SetupHostError(label + ' was refused; inspect the private bootstrap logs before retrying')
     try:
         value = json.loads(result.stdout)

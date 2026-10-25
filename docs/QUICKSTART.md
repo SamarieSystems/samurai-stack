@@ -78,6 +78,22 @@ If it reports a missing QEMU Guest Agent channel, enable that option for this
 VM in Proxmox, shut the VM down cleanly, then start it again and resume step 1.
 A guest reboot alone does not add the missing virtual device.
 
+If APT reports an unavailable `cdrom:` repository, the Debian installer left
+its installation DVD enabled as a package source. Keep the working online
+Trixie repositories. For a normal `deb cdrom:` line in `/etc/apt/sources.list`,
+run these as root from this checkout, then resume step 1:
+
+```sh
+cp -an /etc/apt/sources.list /etc/apt/sources.list.before-samurai
+sed -i '/^[[:space:]]*deb[[:space:]][[:space:]]*cdrom:/s/^/# /' /etc/apt/sources.list
+apt-get update && ./setup 1
+```
+
+Only that DVD line is commented out; the backup and online sources are kept.
+An empty `/etc/apt/sources.list.d` is valid when the OS mirrors are in
+`/etc/apt/sources.list`. For another source format or a different APT error,
+follow [host bootstrap diagnostics](HOST-BOOTSTRAP.md#apt-failures).
+
 ## 2. Connect storage
 
 Select **2**. For a new installation, answer the questions about its name,

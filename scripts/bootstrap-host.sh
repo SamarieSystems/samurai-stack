@@ -77,11 +77,140 @@ def write_private(path, data):
             os.unlink(name)
 
 
+def write_private_text(path, content):
+    """One command's private human-readable output; never overwrite evidence."""
+    safe(path)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as out:
+        out.write(content)
+        out.flush()
+        os.fsync(out.fileno())
+
+
+class CommandCapture:
+    """Private apply-only diagnostics; never make raw command output public."""
+    LIMIT = 128 * 1024
+
+    def __init__(self, run, directory):
+        self.run = run
+        self.directory = safe(directory)
+        self.directory.mkdir(mode=0o700)
+        self.sequence = 0
+        self.last_path = None
+        self.last_json_path = None
+        self.last_operation = None
+        self.logging_failed = False
+
+    @staticmethod
+    def identify(argv):
+        # No full argv is recorded: repository URLs and other arguments may
+        # contain credentials. These fixed labels also remain safe in errors.
+        program = argv[0] if argv and argv[0] in {"apt-get", "curl", "systemctl", "docker"} else "command"
+        operation = "other"
+        if program == "apt-get":
+            operation = "simulate-install" if "--simulate" in argv else "update" if "update" in argv else "install" if "install" in argv else "other"
+        elif program == "curl":
+            operation = "download-signing-key"
+        elif program == "systemctl" and len(argv) > 1 and argv[1] in {"enable", "start", "is-active"}:
+            operation = argv[1]
+        elif program == "docker":
+            operation = "engine-info" if argv[1:2] == ["info"] else "compose-version" if argv[1:3] == ["compose", "version"] else "other"
+        return program, operation
+
+    def record(self, program, operation, *, result=None, error=None):
+        try:
+            self._record(program, operation, result=result, error=error)
+        except Exception:
+            # ENOSPC, permission or serialization trouble in evidence must not
+            # replace the actual command/policy error being diagnosed.
+            self.logging_failed = True
+
+    def _record(self, program, operation, *, result=None, error=None):
+        value = {"program": program, "operation": operation,
+                 "exit": result.returncode if result is not None else None}
+        if error is not None:
+            value["error_type"] = type(error).__name__
+        for field in ("stdout", "stderr"):
+            output = getattr(result if result is not None else error, field, None) or b""
+            encoded = output if isinstance(output, bytes) else str(output).encode("utf-8", errors="replace")
+            value[field] = encoded[-self.LIMIT:].decode("utf-8", errors="replace")
+            value[field + "_bytes"] = len(encoded)
+            value[field + "_truncated"] = len(encoded) > self.LIMIT
+        target = self.directory / f"{self.sequence:04d}-{program}-{operation}.json"
+        write_private(target, value)
+        self.last_json_path = target
+        text = "Operation: " + program + " " + operation + "\nExit: " + str(value["exit"]) + "\n"
+        if error is not None:
+            text += "Execution error: " + value["error_type"] + "\n"
+        for field in ("stdout", "stderr"):
+            text += ("\n--- " + field + " (last " + str(self.LIMIT) + " bytes; original "
+                     + str(value[field + "_bytes"]) + "; truncated: "
+                     + ("yes" if value[field + "_truncated"] else "no") + ") ---\n")
+            text += value[field] + ("" if value[field].endswith("\n") else "\n")
+        log_path = target.with_suffix(".log")
+        write_private_text(log_path, text)
+        self.last_path = log_path
+
+    def __call__(self, argv):
+        self.sequence += 1
+        program, operation = self.identify(argv)
+        self.last_operation = program + " " + operation
+        self.last_path = None
+        self.last_json_path = None
+        try:
+            result = self.run(argv)
+        except Exception as exc:
+            self.record(program, operation, error=exc)
+            raise
+        self.record(program, operation, result=result)
+        return result
+
+
 def source_text(os_id, codename, arch):
     return ("# Managed by Samurai Stack host-bootstrap v1\n"
             f"Types: deb\nURIs: https://download.docker.com/linux/{os_id}\n"
             f"Suites: {codename}\nComponents: stable\nArchitectures: {arch}\n"
             "Signed-By: /etc/apt/keyrings/samurai-docker.asc\n")
+
+
+def active_install_media_source(text, *, deb822=False):
+    """Recognize active cdrom URIs without rewriting or adopting APT sources.
+
+    Grammar: https://manpages.debian.org/trixie/apt/sources.list.5.en.html
+    This is a prerequisite check, not a replacement for APT's source parser.
+    """
+    if not deb822:
+        return any(re.match(r"^\s*deb(?:-src)?\s+(?:\[[^\]\r\n]*\]\s+)?(?i:cdrom):",
+                            line.split("#", 1)[0]) for line in text.splitlines())
+    fields = {}
+    current = None
+
+    def active():
+        enabled = " ".join(fields.get("enabled", [])).strip().lower()
+        # APT StringToBool also accepts these false aliases, case-insensitively.
+        if enabled in {"no", "false", "without", "off", "disable", "0"}:
+            return False
+        types = " ".join(fields.get("types", [])).split()
+        uris = " ".join(fields.get("uris", []))
+        return bool(set(types).intersection({"deb", "deb-src"})
+                    and re.search(r"(?:^|\s)(?i:cdrom):", uris))
+
+    for line in [*text.splitlines(), ""]:
+        if not line.strip():
+            if active():
+                return True
+            fields, current = {}, None
+        elif line.lstrip().startswith("#"):
+            continue
+        elif line[:1].isspace():
+            if current is not None:
+                fields[current].append(line.strip())
+        else:
+            name, separator, value = line.partition(":")
+            current = name.strip().lower() if separator else None
+            if current is not None:
+                fields.setdefault(current, []).append(value.strip())
+    return False
 
 
 def inspect(root, run, script_path):
@@ -131,12 +260,18 @@ def inspect(root, run, script_path):
         path = safe(root / target)
         if path.exists() and (not path.is_file() or previous.get("owned_files", {}).get(str(target)) != expected[str(target)] or file_hash(path) != expected[str(target)]):
             raise BootstrapError(f"Existing {target} is unowned or changed; it will not be overwritten")
+    needs_packages = any(name not in installed for name in BASE + DOCKER)
     sources = []
     candidates = [root / "etc/apt/sources.list", *(root / "etc/apt/sources.list.d").glob("*.list"), *(root / "etc/apt/sources.list.d").glob("*.sources")]
     for path in sorted(candidates):
         if path.exists():
             safe(path)
             text = path.read_text()
+            # APT ignores source fragments whose names contain unsupported
+            # characters. Do not mistake an inactive backup for a live source.
+            active_filename = path == root / "etc/apt/sources.list" or (not path.name.startswith(".") and re.fullmatch(r"[A-Za-z0-9_.-]+", path.name))
+            if needs_packages and active_filename and active_install_media_source(text, deb822=path.suffix == ".sources"):
+                raise BootstrapError("Active APT installation-media source detected; review and disable the unused CD/DVD source after retaining a backup, then rerun preparation. No source files were changed.")
             if path != root / SOURCE and "download.docker.com" in text:
                 raise BootstrapError("Another Docker repository is already configured; inspect it manually rather than creating duplicates")
             sources.append({"path": str(path.relative_to(root)), "sha256": file_hash(path)})
@@ -194,20 +329,31 @@ def apply(document, accepted, root, run, script_path):
             with (backup / f"source-{index}.txt").open("xb") as out:
                 out.write(path.read_bytes())
         write_private(backup / "manifest.json", {"machine_id": document["machine_id"], "apt_sources": document["apt_sources"], "installed_packages": document["installed_packages"]})
+        capture = CommandCapture(run, backup / "commands")
+        receipt["commands_directory"] = str(capture.directory)
         write_private(receipt_path, receipt)
         try:
             missing = [name for name in BASE + DOCKER if name not in document["installed_packages"]]
             if missing:
-                command(run, ["apt-get", "update"])
-                install_missing(run, BASE)
+                command(capture, ["apt-get", "update"])
+                install_missing(capture, BASE)
             if not (root / KEY).exists():
                 fd, name = tempfile.mkstemp(prefix="docker-key-", dir=state)
                 os.close(fd)
                 try:
-                    command(run, ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "--connect-timeout", "15", "--max-time", "60", f"https://download.docker.com/linux/{document['os']}/gpg", "--output", name])
+                    command(capture, ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "--connect-timeout", "15", "--max-time", "60", f"https://download.docker.com/linux/{document['os']}/gpg", "--output", name])
                     if file_hash(Path(name)) != KEY_SHA256:
                         raise BootstrapError("Docker key differs from the pinned official artifact; review upstream key rotation instead of accepting it automatically")
-                    safe(root / KEY).parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+                    key_directory = safe((root / KEY).parent)
+                    try:
+                        key_directory.mkdir(parents=True, mode=0o755)
+                    except FileExistsError:
+                        if not key_directory.is_dir():
+                            raise BootstrapError("Docker signing-key directory is occupied by a file; existing files were retained")
+                    else:
+                        # The shell umask is deliberately 077. Only the newly
+                        # created directory needs explicit traversal for _apt.
+                        os.chmod(key_directory, 0o755)
                     receipt["owned_files"][str(KEY)] = KEY_SHA256
                     write_private(receipt_path, receipt)
                     descriptor = os.open(root / KEY, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -226,17 +372,24 @@ def apply(document, accepted, root, run, script_path):
                     out.write(source_text(document["os"], document["codename"], document["architecture"]))
                 os.chmod(path, 0o644)
             if missing:
-                command(run, ["apt-get", "update"])
-                install_missing(run, DOCKER)
-            command(run, ["systemctl", "enable", "--now", "docker"])
-            command(run, ["systemctl", "start", "qemu-guest-agent"])
-            result = verify_runtime(run)
-            receipt.update(state="ready", runtime=result)
+                command(capture, ["apt-get", "update"])
+                install_missing(capture, DOCKER)
+            command(capture, ["systemctl", "enable", "--now", "docker"])
+            command(capture, ["systemctl", "start", "qemu-guest-agent"])
+            result = verify_runtime(capture)
+            receipt.update(state="ready", runtime=result, command_diagnostics_complete=not capture.logging_failed)
             write_private(receipt_path, receipt)
             return result
         except Exception as exc:
-            receipt.update(state="failed", error=type(exc).__name__)
-            write_private(receipt_path, receipt)
+            receipt.update(state="failed", error=type(exc).__name__, command_diagnostics_complete=not capture.logging_failed)
+            try:
+                write_private(receipt_path, receipt)
+            except Exception:
+                pass  # Preserve the original failure even when evidence storage also fails.
+            if isinstance(exc, BootstrapError):
+                detail = " Last operation: " + capture.last_operation + "." if capture.last_operation else ""
+                path = capture.last_path or capture.directory
+                raise BootstrapError(str(exc) + detail + " Private command diagnostic: " + str(path)) from exc
             raise
 
 
