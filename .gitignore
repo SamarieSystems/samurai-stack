@@ -10,6 +10,7 @@ secrets/
 state/
 appdata/
 evidence/
+.setup-state/
 *.tar
 *.tar.gz
 *.zip

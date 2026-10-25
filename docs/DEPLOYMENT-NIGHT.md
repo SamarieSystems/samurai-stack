@@ -12,8 +12,9 @@ rebuild its storage pool just to follow the new-guest path.
 
 This is an alpha with a recorded disposable-machine acceptance pass, not a
 replacement for checking the actual machine and provider. Read
-[QUICKSTART.md](QUICKSTART.md) for the commands and
+[QUICKSTART.md](QUICKSTART.md) for the guided menu and
 [VALIDATION.md](VALIDATION.md) for the evidence and remaining limits.
+The individual plan/apply commands remain in [Advanced CLI](ADVANCED.md).
 
 ## Collect these facts first
 
@@ -114,9 +115,9 @@ plaintext password bundle or reuse the developer's credentials.
 
 | Needed when | Credential or access | Where it is used |
 | --- | --- | --- |
-| Every deployment | Administrator/sudo access to each new guest; operator SSH public key and matching private key kept on the operator's computer | Guest login/bootstrap and toolkit commands. Only the public `.pub` key goes into Proxmox cloud-init. |
+| Every deployment | Root console or administrator/sudo access to each new guest; operator SSH public key and matching private key kept on the operator's computer | Guest login/setup. Only the public `.pub` key goes into Proxmox cloud-init. |
 | Proxmox provisioning | Root shell on the intended existing Proxmox node; selected existing bridge/storage; official cloud image plus its published SHA512 | Stage 1 runs on that node. A Proxmox API token is not required by this alpha's local CLI workflow. |
-| NAS storage | NAS administrator access to create a dedicated user/export/ACL, plus an allowed media identity | Vendor UI and deliberate guest mount setup. NFS normally authorizes hosts and numeric identities rather than taking an SMB password. |
+| NAS storage | NAS administrator access to create a dedicated user/export/ACL, plus an allowed media identity | Vendor UI, then the guided guest connection review. NFS normally authorizes hosts and numeric identities rather than taking an SMB password. |
 | Torrents | VPN subscription and protocol-specific service credentials/configuration | Hidden `secret` inputs on the torrent guest. A website password is not necessarily the VPN credential. |
 | Usenet | NNTP server hostname, TLS port, service username/password and connection allowance | SABnzbd's own wizard and connection test. |
 | Indexers/subtitles | Chosen provider URL and API key/account, if required | Prowlarr/Bazarr UIs. No commercial account or indexer is supplied. |
@@ -131,7 +132,20 @@ provider's service credentials. Custom VPN profiles use a private file import.
 qBit's Web UI login, slskd's Web UI/API credentials and internal database keys
 are generated locally; they are not credentials to obtain from the friend.
 
-## Run it in this order
+## Normal installation
+
+Follow [Quickstart](QUICKSTART.md), then run `./setup`. Its steps are 1, guest
+preparation; 2, storage; 3, media; 4, VPN torrents; 5, management; 6, optional
+photos/music. Use `./setup 3` to resume media enrollment, for example. It handles
+the private plans and asks for confirmation without copied hashes or JSON edits.
+New NFS guest mounts include a reviewed persistent entry and a private fstab
+backup; NAS export/user/ACL setup still happens in the vendor interface.
+
+## Advanced order of operations
+
+The following is the lower-level workflow for operators using [Advanced
+CLI](ADVANCED.md). Its engine stage IDs are different from the guided menu
+numbers above. You do not need to run both workflows for one installation.
 
 1. **Choose the blast radius.** Back up important existing data, select a new
    VM and a separate empty test tree. If Proxmox must be installed, do that
@@ -219,8 +233,8 @@ those selected host-map entries at that guest.
 
 ## What is still manual
 
-Physical installation and disk choice; NAS accounts/exports/ACLs; persistent
-mounts; reserved IPs and network policy; GPU passthrough/guest drivers and actual
+Physical installation and disk choice; NAS accounts/exports/ACLs; review of
+existing persistent mounts; reserved IPs and network policy; GPU passthrough/guest drivers and actual
 transcode tests; first administrator accounts; paid/provider logins; quality,
 language and notification choices; actual device playback; independent backups
 and restore tests. Automatic cloud provisioning, GPU assignment, media migration,

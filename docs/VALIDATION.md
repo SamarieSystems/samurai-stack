@@ -3,6 +3,40 @@
 October 24, 2026. These are measured results from the release candidate, not a
 claim that every supported provider, device or deployment has been tested.
 
+## Alpha 3 guided installer acceptance
+
+October 25, 2026. The new `./setup` entry point was exercised in actual Linux
+pseudo-terminals on the isolated disposable VM, alongside real application and
+storage tests. This changes the operator interface; the reviewed deployment
+engine, storage guards, image locks and VPN namespace requirements remain.
+
+- Help, quit, invalid menu input and invalid step handling passed. Screens did
+  not print raw JSON, copied plan hashes or stored credential values.
+- Guided step 1 recognized the existing verified runtime. Package/dpkg/apt
+  evidence and the Docker PID were unchanged; no install or restart ran.
+- Guided step 3 resumed healthy guarded media services, reused authenticated
+  credentials and completed 14 configuration plus 14 readback checks. All seven
+  container IDs and start times were unchanged. Actual browser URLs appeared.
+- A separate fresh CPU/torrent-only wizard saved private configuration. Guided
+  storage apply/verification ran twice; saved answers were reused unchanged.
+- The guided NFS connection mounted an owned loopback-only NFSv4 export with
+  root squashing, saved a persistent entry and exact private backup, and passed
+  real UID 1000 folder/hardlink checks. Resume did not remount or rewrite it.
+  Its fstab was a private acceptance fixture; the household NAS and its ACLs
+  were not contacted or changed.
+- A mistyped API key was rejected by the real Jellyfin endpoint before file
+  creation. A valid key passed; explicit correction preserved the exact old
+  installer copy privately. Neither value appeared in the operator messages.
+- Regression tests cover missing/stale systemd guards, pending enrollment,
+  exact accepted-plan validation, interrupted progress, owned subprocess-group
+  interruption, per-config progress isolation and scoped NFS/fstab conflicts.
+- Final Linux run: all 236 tests passed. Windows: 219 passed and 17
+  platform/runtime skips. The existing real Compose parser checks remain green.
+
+The first-user browser logins, real provider credentials and NAS export/identity
+permissions still need the operator. A readable installer does not prove
+commercial VPN forwarding, sustained throughput, GPU support or backups.
+
 ## Alpha 2 failure and recovery pass
 
 The additional October 24 pass used the same isolated disposable VM and no

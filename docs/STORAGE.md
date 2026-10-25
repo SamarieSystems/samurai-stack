@@ -4,6 +4,16 @@ The tool does not create NAS accounts or exports remotely. Synology, TrueNAS and
 
 Create a dedicated user/group or ID mapping with access only to the intended media tree. Decide your numeric media UID/GID first; the same IDs must mean the same access on each guest and NAS. Map a non-root media identity deliberately rather than enabling unrestricted root access to an entire NAS.
 
+Guided `./setuppart2` can select an already mounted NFS export or connect one
+new export at an empty local mountpoint. It previews that exact connection and
+asks before mounting or adding its persistent fstab entry. Existing conflicting
+mounts/entries and nonempty mountpoints are refused; the original fstab is backed
+up privately before one reviewed entry is appended. A previously connected
+export can finish persistence on retry without being remounted. No NAS account,
+export ACL, existing media or recursive permissions are changed. The advanced
+storage stage still only validates/prepares a mounted tree; it does not manage
+fstab by itself.
+
 Export one media tree containing both downloads and libraries. Mount it on each relevant guest before stage 0. Separate NFS exports, ZFS datasets or sub-mounts can prevent hardlinks even on the same physical disks. The stage tests an actual hardlink between its download and movie-library directories.
 
 For example, on a new guest with the NFS client installed:
@@ -15,7 +25,7 @@ sudo mount -t nfs4 -o rw,hard nas.example:/export/media /mnt/media
 findmnt --target /mnt/media --output TARGET,SOURCE,FSTYPE,OPTIONS
 ```
 
-Configure a persistent mount deliberately in your guest's `/etc/fstab`, then test that exact entry. The installer does not edit fstab, guess an NFS version, or turn a failed mount into a local directory. Use the exact TARGET, SOURCE and FSTYPE that `findmnt` reports as `storage.expected_mount`. A NAS using NFSv3 may report `nfs`; do not claim `nfs4` in that case. Avoid soft NFS mounts for application writes.
+When using the advanced commands, configure a persistent mount deliberately in your guest's `/etc/fstab`, then test that exact entry. The advanced storage engine does not edit fstab, guess an NFS version, or turn a failed mount into a local directory. The guided connection above instead records the actual mount type after a successful connection. Use the exact TARGET, SOURCE and FSTYPE that `findmnt` reports as `storage.expected_mount`. A NAS using NFSv3 may report `nfs`; do not claim `nfs4` in that case. Avoid soft NFS mounts for application writes.
 
 When multiple guests share this tree, use the same mountpoint path, canonical
 NAS/export spelling and NFS version on all of them. The marker records the exact

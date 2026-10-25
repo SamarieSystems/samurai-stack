@@ -124,6 +124,13 @@ class HostBootstrapTests(unittest.TestCase):
             self.mod.main([], root=self.root, run=self.run, script_path=SCRIPT)
         self.assertEqual([], self.run.effects)
 
+    def test_verify_mode_checks_runtime_without_changing_packages_or_services(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = self.mod.main(['--verify'], root=self.root, run=self.run, script_path=SCRIPT)
+        self.assertEqual('ready', result['state'])
+        self.assertFalse(any(call[0] in {'apt-get', 'curl'} or (call[0] == 'systemctl' and call[1] != 'is-active') for call in self.run.calls))
+        self.assertFalse((self.root / self.mod.STATE).exists())
+
     def test_proxmox_host_is_refused(self):
         (self.root / "etc/pve").mkdir()
         with self.assertRaisesRegex(self.mod.BootstrapError, "Proxmox host"):

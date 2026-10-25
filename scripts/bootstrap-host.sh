@@ -244,6 +244,7 @@ def main(argv=None, *, root=Path("/"), run=runner, script_path=None):
     parser = argparse.ArgumentParser(description="New KVM/QEMU guest prerequisites; default is read-only planning")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--plan", action="store_true")
+    modes.add_argument("--verify", action="store_true", help="Read-only guest and installed-runtime verification")
     modes.add_argument("--apply", action="store_true")
     parser.add_argument("--plan-file")
     parser.add_argument("--accept-plan")
@@ -256,6 +257,9 @@ def main(argv=None, *, root=Path("/"), run=runner, script_path=None):
             raise BootstrapError("Apply requires root inside the new VM")
         plan_path = safe(Path(args.plan_file))
         result = apply(json.loads(plan_path.read_text()), args.accept_plan, root, run, script_path)
+    elif args.verify:
+        inspect(root, run, script_path)
+        result = verify_runtime(run)
     else:
         result = inspect(root, run, script_path)
     print(json.dumps(result, indent=2))

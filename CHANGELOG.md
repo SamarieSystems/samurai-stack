@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.0-alpha.3 - 2026-10-25
+
+- Add `./setup`: a guided six-step menu with direct `./setup NUMBER` resume.
+  It keeps reviewed plans, hashes and private diagnostic reports internally;
+  operators approve a readable description instead of copying CLI parameters.
+- Discover the guest LAN address and timezone; save CPU-only, torrents-first
+  choices once and reuse existing configuration, credentials and appdata.
+- Connect a selected NFS export with one reviewed persistent mount and private
+  fstab backup. Refuse conflicting/occupied mountpoints; retain NAS ACLs and data.
+- Guide application enrollment with actual LAN URLs, hidden credential prompts,
+  authenticated API-key checks before saving, and deliberate backed-up typo
+  correction. Pending enrollment remains resumable without redeploying apps.
+- Verify guarded systemd startup before accepting a healthy-container resume;
+  keep interrupted progress paused and isolate progress by configuration file.
+- Add read-only bootstrap runtime verification and keep long operations visible
+  with periodic progress messages. Existing host preparation can resume without
+  package installation or Docker restart.
+- Rewrite the quickstart around the guided installer. The previous individual
+  commands remain available in `docs/ADVANCED.md`.
+
+NAS accounts/export permissions, provider accounts and application first-user
+logins still belong to the operator. This interface does not format disks,
+migrate existing collections, expose public services or waive live verification.
+
 ## 0.1.0-alpha.2 - 2026-10-24
 
 - Save each stage's startup-guard configuration beside its own Compose file.
