@@ -29,6 +29,11 @@ class GuidedSetupTests(unittest.TestCase):
         self.remember = self.enterContext(mock.patch.object(self.ui, '_remember_configuration',
                                                           return_value=self.root / 'registry/site.json'))
         self.c = default_config('192.168.50.20')
+        if os.name == 'posix':
+            # Unit tests must never inspect a real deployment on a used host.
+            self.c['install_root'] = str(self.root / 'apps')
+            self.c['storage']['data_root'] = str(self.root / 'media')
+            self.c['storage']['expected_mount']['target'] = str(self.root)
         self.model = {'services': {'jellyfin': {'image': 'synthetic-image'}}}
         self.compose = self.root / 'compose.json'; self.compose.write_text(json.dumps(self.model))
         self.document = {'host': {'host_id': 'synthetic-host'}, 'stage': 2, 'actions': ['controlled fixture']}
@@ -416,11 +421,14 @@ class GuidedSetupTests(unittest.TestCase):
     def test_first_registry_migration_keeps_matching_legacy_source_progress(self):
         canonical, old = self.legacy_registry_fixture(dict(self.c, timezone='Etc/UTC'))
         before = (old / 'progress.json').read_bytes()
-        ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
-        self.assertEqual('verified', ui.state()['1']['status'])
-        self.assertEqual('verified', ui.state()['2']['status'])
-        ui.mark(3, 'paused')
-        self.assertEqual({'1', '2', '3'}, set(ui.state()))
+        # Fixtures belong to the CI user; the actual guided command is root-only.
+        with mock.patch('samurai_stack.installation_registry._owner'):
+            ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state',
+                                   registry_root=self.root / 'registry')
+            self.assertEqual('verified', ui.state()['1']['status'])
+            self.assertEqual('verified', ui.state()['2']['status'])
+            ui.mark(3, 'paused')
+            self.assertEqual({'1', '2', '3'}, set(ui.state()))
         self.assertEqual(before, (old / 'progress.json').read_bytes())
         self.assertEqual(self.c, json.loads(canonical.read_text()))
 
@@ -429,8 +437,10 @@ class GuidedSetupTests(unittest.TestCase):
         bundle = self.root / 'portable-bundle'; bundle.mkdir()
         write_json(bundle / 'site.json', dict(self.c, install_root='/opt/unrelated-installation'))
         original = (old / 'progress.json').read_bytes()
-        with mock.patch.object(setup.Path, 'cwd', return_value=self.repo):
-            ui = setup.GuidedSetup(bundle, canonical, state_base=self.root / 'host-state')
+        with mock.patch.object(setup.Path, 'cwd', return_value=self.repo), \
+             mock.patch('samurai_stack.installation_registry._owner'):
+            ui = setup.GuidedSetup(bundle, canonical, state_base=self.root / 'host-state',
+                                   registry_root=self.root / 'registry')
             self.assertEqual('verified', ui.state()['2']['status'])
             ui.mark(3, 'paused')
         self.assertEqual(original, (old / 'progress.json').read_bytes())
@@ -462,12 +472,14 @@ class GuidedSetupTests(unittest.TestCase):
                 old.mkdir(parents=True)
                 write_json(old / 'progress.json', {'2': {'status': 'verified'}})
                 canonical = Path(temporary) / 'canonical.json'; write_json(canonical, self.c)
-                ui = setup.GuidedSetup(repo, canonical, state_base=Path(temporary) / 'host-state')
+                ui = setup.GuidedSetup(repo, canonical, state_base=Path(temporary) / 'host-state',
+                                       registry_root=Path(temporary) / 'registry')
                 self.assertEqual({}, ui.state())
 
     def test_current_registry_progress_precedes_matching_source_legacy_progress(self):
         canonical, old = self.legacy_registry_fixture()
-        ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
+        ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state',
+                               registry_root=self.root / 'registry')
         ui.mark(2, 'paused')
         self.assertEqual('paused', ui.state()['2']['status'])
         self.assertEqual('verified', json.loads((old / 'progress.json').read_text())['2']['status'])
@@ -476,7 +488,8 @@ class GuidedSetupTests(unittest.TestCase):
         from samurai_stack import installation_registry as registry
         canonical, _ = self.legacy_registry_fixture()
         with mock.patch.object(registry, '_owner', side_effect=SafetyError('untrusted source')):
-            ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
+            ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state',
+                                   registry_root=self.root / 'registry')
             self.assertEqual({}, ui.state())
             ui.mark(2, 'paused')
             self.assertEqual('paused', ui.state()['2']['status'])

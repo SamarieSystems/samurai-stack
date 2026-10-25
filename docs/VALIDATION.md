@@ -43,6 +43,10 @@ modify the friend's machine or existing household services and personal data.
 - Linux passed all 632 tests with no skips. Windows ran 632 tests: 600 passed
   and 32 platform/runtime cases were skipped, with no failures. All 16 real
   Compose parser cases passed without starting containers.
+- The same suite also passed as the ordinary Linux test user: 631 passed and
+  one root-only permission case was skipped. This caught and corrected test
+  fixtures that assumed root ownership or inspected default deployment paths;
+  runtime ownership checks were not weakened.
 
 These checks prove the bounded recovery paths, not deleted-database recovery,
 physical storage health, a commercial VPN/provider connection, real download

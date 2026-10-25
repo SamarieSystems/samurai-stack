@@ -308,6 +308,8 @@ class RegistryTests(unittest.TestCase):
         self.assertFalse(self.registry.exists())
 
     def test_missing_runtime_uses_only_matching_host_bound_canonical_with_warning(self):
+        if os.name == 'posix':
+            self.c['install_root'] = str(self.root / 'apps')
         canonical = self.remember()
         self.units.mkdir(mode=0o700)
         unit = self.units / ('samurai-' + self.c['deployment_name'] + '-2.service')
@@ -330,12 +332,16 @@ class RegistryTests(unittest.TestCase):
             self.discover()
 
     def test_canonical_cannot_bless_foreign_missing_unit_identity(self):
+        if os.name == 'posix':
+            self.c['install_root'] = str(self.root / 'apps')
         self.remember()
         self.units.mkdir(mode=0o700)
         unit = self.units / ('samurai-' + self.c['deployment_name'] + '-2.service')
         other = default_config()['deployment_id']
+        guard = Path(self.c['install_root']) / 'runtime_guard.py'
+        runtime = Path(self.c['install_root']) / 'stages' / (self.c['deployment_name'] + '-2') / 'site.json'
         unit.write_text('# Managed by Samurai Stack: ' + other + '\n'
-                        'ExecStartPre=/usr/bin/python3 /opt/samurai/runtime_guard.py /opt/samurai/stages/homelab-2/site.json 2\n')
+                        'ExecStartPre=/usr/bin/python3 ' + shlex.quote(str(guard)) + ' ' + shlex.quote(str(runtime)) + ' 2\n')
         unit.chmod(0o644)
         with self.assertRaisesRegex(SafetyError, 'missing saved configuration'):
             self.discover()
