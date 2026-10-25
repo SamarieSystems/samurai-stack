@@ -3,9 +3,9 @@
 [![Checks](https://github.com/SamarieSystems/samurai-stack/actions/workflows/checks.yml/badge.svg)](https://github.com/SamarieSystems/samurai-stack/actions/workflows/checks.yml)
 [GPL-3.0-only](LICENSE) | [Releases](https://github.com/SamarieSystems/samurai-stack/releases) | [Changelog](CHANGELOG.md)
 
-Build a private media server with a guided installer. Pick a step, review what it will change, finish the application's first-run screens when prompted, then continue. You can stop and return to the same step without starting over.
+Build a private media server with a guided installer. Pick a step, review what it will change, enter the requested application credentials, then finish the remaining provider and browser settings. You can stop and return to the same step without starting over.
 
-**0.1.0 alpha 3.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits.
+**0.1.0 alpha 4.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
 
 ## Start here
 
@@ -13,7 +13,7 @@ Inside a **new Debian 13 KVM/QEMU VM**, open a root console (`su -` if needed):
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.3 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.4 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
@@ -29,19 +29,21 @@ If the machine still runs Windows or has important files on its disks, first cho
 | --- | --- |
 | **1. Prepare this guest** | Checks the Debian/Ubuntu guest, shows package/repository changes, then installs Docker, Compose, the guest agent and NFS support after confirmation. |
 | **2. Connect storage** | Guides local storage or a dedicated NFS export, reviews a new persistent guest mount when needed, then verifies the media identity and prepares the data tree. |
-| **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with SABnzbd if you choose Usenet. Shows actual URLs, pauses for first-run accounts and connects the apps. |
+| **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls fresh Jellyfin/Starr administrator accounts and a separate Jellyfin viewer, guides remaining browser settings, enables and verifies hardlinks, and connects the apps. |
 | **4. Set up VPN torrents** | qBittorrent behind Gluetun, protocol-specific hidden credential prompts, normal magnet entry and application connections. |
 | **5. Set up management** | Dockge and Uptime Kuma, with optional Homarr. Account creation and a delivered notification still need your input. |
 | **6. Add photos or music** | Choose Immich or Navidrome/slskd, with optional Music Assistant. Add these when you can finish their account, backup or playback checks. |
 
 Run `./setup 3` to open media directly, or `./setup 4` to return to VPN torrents. These are **guided menu numbers**; the advanced engine has separate stage IDs. The installer handles that mapping.
 
+For an existing installation, `./setup --hardlinks` checks and offers to enable only Sonarr/Radarr's hardlink settings. It does not deploy containers, scan libraries or move media. A standalone repair for older source copies is documented in [Install and repair](docs/INSTALL.md).
+
 Start with CPU playback. GPU passthrough, guest drivers and a real transcode test remain deliberate hardware work. One compact application VM is the shortest first rollout. Separate VMs need the same installation identity and shared storage configuration; follow [the advanced multi-VM instructions](docs/ADVANCED.md#several-vms-one-installation).
 
 ## What you still provide
 
 - A supported Linux VM, a reserved LAN address and a deliberate storage choice. NAS exports, users and access rules are created in the NAS interface.
-- First administrator accounts in the applications. The installer pauses with the correct URLs instead of inventing shared logins.
+- One application administrator login and a separate everyday Jellyfin viewer login, entered with hidden password confirmation. Only applications reserved before their first start are enrolled automatically. Existing accounts are never reset. Bazarr, Seerr, management and optional applications still have explicit browser steps.
 - Your own VPN, Usenet, indexer, subtitle and optional music-provider credentials. Hidden prompts and private files keep secrets out of command arguments and plans.
 - Quality/language choices, actual player tests, notification delivery and independent backups. A green container cannot prove those worked.
 

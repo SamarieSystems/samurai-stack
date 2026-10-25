@@ -1,15 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.4 - 2026-10-25
+
+- Enable Sonarr/Radarr `copyUsingHardlinks` during application configuration and
+  verify the exact API field by readback. Add focused `hardlinks --apply` and
+  `./setup --hardlinks` maintenance without deployment, restarts or media access.
+- Package a standalone hardlink repair for existing ZIP installations. It uses
+  the original private site configuration and verifies local application ownership.
+- Reserve fresh application directories before their first start. Offer hidden
+  administrator/viewer credential prompts and enroll Jellyfin, Sonarr, Radarr
+  and Prowlarr through their APIs. Test actual logins and deny anonymous access;
+  give Jellyfin's everyday viewer an explicitly restricted policy. Preserve
+  existing accounts and exact saved credentials across retries. Other first-run
+  screens and provider choices remain explicit manual work.
 
 - Identify active installation-DVD APT sources before host preparation and
-  explain how to disable only that entry while keeping online OS mirrors.
-  Inspection never rewrites the source configuration.
+  offer a separate reviewed, default-no repair that disables only those entries
+  while keeping online OS mirrors and private originals. Replan before package
+  approval. Unknown repository failures never trigger automatic edits.
 - Retain bounded private command output, including APT failures and dependency
   simulations. Guided errors explain known refusals and point directly to the
   readable command log instead of hiding the cause behind a generic failure.
 - Give a newly created Docker keyring directory the traversal permissions APT
   needs even under the bootstrap's private umask; preserve existing directories.
+- Document path conventions, the common container `/data` tree, focused repair,
+  and concrete acceptance gates for the 0.2 milestone.
 
 ## 0.1.0-alpha.3 - 2026-10-25
 

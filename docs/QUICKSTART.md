@@ -39,7 +39,7 @@ In the guest, open a root console (`su -` if needed), then run:
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.3 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.4 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
@@ -54,7 +54,7 @@ In your existing checkout, using the account that owns it:
 
 ```sh
 git fetch --tags origin
-git checkout v0.1.0-alpha.3
+git checkout v0.1.0-alpha.4
 ./setup
 ```
 
@@ -119,16 +119,33 @@ before initializing a second configuration.
 ## 3. Set up media
 
 Select **3**. The installer starts the selected media apps and prints their
-actual LAN addresses. Open those URLs in a browser on the same private network.
-Finish the listed first-run tasks, then return to the terminal and continue:
+actual LAN addresses. For newly reserved application directories, it offers
+one application administrator username/password and a separate everyday
+Jellyfin viewer username/password. Password entry and confirmation are hidden;
+use distinct passwords of at least 12 characters, separate from Linux root/SSH.
+It enrolls Jellyfin, Sonarr, Radarr and Prowlarr, tests real logins, and checks
+that the viewer cannot reach a Jellyfin administrator endpoint. The Jellyfin
+API key is created and saved privately. Exact saved credentials are reused on
+retry; this is not an account-reset mechanism.
+Do not create accounts in a second browser wizard while automatic enrollment
+is running. The first-run reservation proves initial empty application state,
+but the applications do not offer an atomic lock against a separate operator.
 
-1. **Sonarr, Radarr and Prowlarr:** create the requested administrator access;
-   add your indexers in Prowlarr and choose the quality profiles you want.
+Existing apps without a reservation made before first startup keep their
+accounts and use the browser path. No password is guessed or replaced.
+
+Open the printed URLs in a browser on the same private network. Finish the
+remaining tasks, then return to the terminal and continue:
+
+1. **Sonarr, Radarr and Prowlarr:** use the enrolled application administrator,
+   or create/verify the existing login when automation was skipped. Add your
+   indexers in Prowlarr and choose the quality profiles you want.
 2. **SABnzbd, when enabled:** finish its wizard, enable Web UI authentication,
    enter the NNTP server/service credentials and run the provider connection
    test. Torrent-only installations omit SAB.
-3. **Jellyfin:** create the administrator, finish onboarding and create an API
-   key in its administrator dashboard.
+3. **Jellyfin:** use the everyday viewer for playback. If automatic enrollment
+   was skipped, finish the administrator wizard, create a separate viewer and
+   create an API key in the administrator dashboard.
 4. **Seerr:** finish its initial Jellyfin sign-in against the printed Jellyfin
    address, then obtain its API key.
 5. **Bazarr:** configure authentication, subtitle languages and your providers.
@@ -139,6 +156,11 @@ application before saving it. Existing valid keys are reused; correcting a
 saved installer copy requires explicit confirmation and keeps a private backup.
 It tests and saves the supported library/client/application connections, then
 reads them back. You do not construct the inter-app URLs and paths yourself.
+This includes enabling and reading back Sonarr/Radarr's `copyUsingHardlinks`.
+An actual download/import inode check remains a separate acceptance test.
+
+For only the hardlink setting on an existing install, use
+`./setup --hardlinks`. It does not redeploy the media stage or scan media.
 
 If enrollment is incomplete, the result stays **pending** with the next action.
 Finish that screen and continue, or leave the installer and later run:

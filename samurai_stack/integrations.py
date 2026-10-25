@@ -159,6 +159,28 @@ def _root_folder(r, service, media_type):
     return "library root created and verified"
 
 
+def _hardlinks(r, service):
+    """Change only the supported Starr copy/hardlink policy, never import files."""
+    path = "/api/v3/config/mediamanagement"
+    current = r.api(service, path)
+    # Both upstream V3 MediaManagementConfigResource classes expose
+    # CopyUsingHardlinks; ConfigController saves the resource with RestPutById.
+    if (not isinstance(current, dict) or type(current.get("copyUsingHardlinks")) is not bool
+            or type(current.get("id")) is not int or current["id"] < 1):
+        raise RuntimeError("Unsupported Starr media-management schema")
+    if current["copyUsingHardlinks"] is False:
+        if not r.write:
+            raise Conflict("Use Hardlinks instead of Copy is disabled; enable it before verifying")
+        proposed = deepcopy(current)
+        proposed["copyUsingHardlinks"] = True
+        r.api(service, path + "/" + str(current["id"]), "PUT", proposed)
+        saved = r.api(service, path)
+        if (not isinstance(saved, dict) or type(saved.get("id")) is not int
+                or saved["id"] != current["id"] or saved.get("copyUsingHardlinks") is not True):
+            raise Conflict("Hardlink setting did not persist as enabled; inspect application settings")
+    return "Use Hardlinks instead of Copy enabled and verified; filesystem/import behavior not tested"
+
+
 def _sab(r):
     key = r.key("sab_api_key")
     def api(mode, **fields):
@@ -445,6 +467,7 @@ def _run(config, stage, request, secret_resolver, write):
     r = _Run(config, stage, request, secret_resolver, write)
     if stage == 2:
         for service, folder in [("radarr", "movies"), ("sonarr", "tv")]:
+            r.step(service + ":hardlinks", lambda s=service: _hardlinks(r, s))
             r.step(service + ":root", lambda s=service, f=folder: _root_folder(r, s, f))
             r.step("prowlarr:" + service, lambda s=service: _prowlarr_link(r, s))
             r.step(service + ":protocol-preference", lambda s=service: _protocol_preference(r, s))
@@ -462,6 +485,7 @@ def _run(config, stage, request, secret_resolver, write):
         if r.report["errors"] or r.report["pending"]:
             return r.finish()  # Never register an unverified torrent backend.
         for service, category in [("radarr", "movies"), ("sonarr", "tv")]:
+            r.step(service + ":hardlinks", lambda s=service: _hardlinks(r, s))
             r.step(service + ":qbittorrent", lambda s=service, c=category: _download_client(r, s, c, torrent=True))
             r.step(service + ":protocol-preference", lambda s=service: _protocol_preference(r, s))
     elif stage == 4:
@@ -508,3 +532,21 @@ def configure_stage(config, stage: int, request=None, secret_resolver=None) -> d
 
 def verify_stage(config, stage: int, request=None, secret_resolver=None) -> dict:
     return _run(config, stage, request, secret_resolver, False)
+
+
+def _run_hardlinks(config, request, secret_resolver, write):
+    r = _Run(config, 2, request, secret_resolver, write)
+    r.report["scope"] = "hardlinks-only"
+    for service in ("radarr", "sonarr"):
+        r.step(service + ":hardlinks", lambda s=service: _hardlinks(r, s))
+    return r.finish()
+
+
+def configure_hardlinks(config, request=None, secret_resolver=None) -> dict:
+    """Enable two import-policy flags only; no downloads, imports or media I/O."""
+    return _run_hardlinks(config, request, secret_resolver, True)
+
+
+def verify_hardlinks(config, request=None, secret_resolver=None) -> dict:
+    """Read back the two hardlink flags without changing application settings."""
+    return _run_hardlinks(config, request, secret_resolver, False)

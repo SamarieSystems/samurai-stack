@@ -98,6 +98,8 @@ def parser():
     init.add_argument("--example", action="store_true")
     commands.add_parser("validate", help="Validate configuration without writes")
     commands.add_parser("inspect", help="Read-only local mount/hardware/runtime inventory")
+    hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
+    hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
     for name in ["plan", "apply", "configure", "verify", "status", "access"]:
         cmd = commands.add_parser(name)
         cmd.add_argument("stage", type=int, choices=sorted(engine.STAGES))
@@ -129,6 +131,9 @@ def main(argv=None):
             c = load_config(args.config)
             if args.command == "validate":
                 result = {"configuration": "valid", "version": __version__}
+            elif args.command == "hardlinks":
+                from . import hardlinks
+                result = hardlinks.run(c, apply=args.apply)
             elif args.command == "inspect":
                 result = {"platform": sys.platform, "cpus": os.cpu_count(), "role": c.get("role", "all"),
                           "storage": storage.check_mount(c), "gpu_mode": c["hardware"]["acceleration"]}

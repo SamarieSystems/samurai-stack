@@ -9,6 +9,7 @@ case "${1:-}" in
       'Run ./setup for the menu, or ./setup NUMBER to resume one step.' \
       '1 Prepare Debian   2 Connect storage   3 Media applications' \
       '4 VPN and torrents 5 Management        6 Optional extras'
+    printf '%s\n' 'Maintenance: ./setup --hardlinks checks/enables hardlinks without redeploying.'
     exit 0 ;;
   --version)
     sed -n 's/^__version__ = "\([^"]*\)"/\1/p' samurai_stack/__init__.py

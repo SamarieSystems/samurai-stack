@@ -46,6 +46,79 @@ class GuidedSetupTests(unittest.TestCase):
             self.assertTrue(self.ui.install(self.c, 2))
         planned.assert_not_called(); invoke.assert_not_called(); self.read.assert_not_called()
 
+    def test_hardlink_maintenance_verifies_without_deployment_or_prompt_when_enabled(self):
+        with mock.patch.object(self.ui, 'invoke', return_value=(0, {'ok': True})) as invoke, \
+             mock.patch.object(self.ui, 'install') as install:
+            self.assertTrue(self.ui.hardlinks())
+        self.assertEqual(['hardlinks'], invoke.call_args.args[0])
+        install.assert_not_called(); self.read.assert_not_called()
+
+    def test_hardlink_maintenance_repairs_only_after_confirmation_then_verifies(self):
+        self.read.return_value = 'yes'
+        replies = [(2, {'ok': False}), (0, {'ok': True}), (0, {'ok': True})]
+        with mock.patch.object(self.ui, 'invoke', side_effect=replies) as invoke, \
+             mock.patch.object(self.ui, 'install') as install:
+            self.assertTrue(self.ui.hardlinks())
+        self.assertEqual([['hardlinks'], ['hardlinks', '--apply'], ['hardlinks']], [call.args[0] for call in invoke.call_args_list])
+        install.assert_not_called()
+
+    def test_hardlink_maintenance_decline_never_writes(self):
+        with mock.patch.object(self.ui, 'invoke', return_value=(2, {'ok': False})) as invoke:
+            self.assertFalse(self.ui.hardlinks())
+        invoke.assert_called_once()
+
+    def test_legacy_account_enrollment_never_prompts_for_credentials(self):
+        from samurai_stack import onboarding
+        with mock.patch.object(onboarding, 'eligible_apps', return_value=[]), \
+             mock.patch.object(onboarding, 'onboarding') as enroll:
+            self.assertEqual(set(), self.ui.enroll_accounts(self.c))
+        enroll.assert_not_called(); self.read.assert_not_called()
+
+    def test_fresh_account_enrollment_uses_hidden_inputs_and_does_not_launch_child(self):
+        from samurai_stack import onboarding
+        c = dict(self.c, install_root=str(self.root / 'install'))
+        self.read.side_effect = ['yes', 'fixture-admin', 'fixture-viewer']
+        self.ui.secret_fn = mock.Mock(side_effect=['fixture-admin-password', 'fixture-admin-password',
+                                                   'fixture-viewer-password', 'fixture-viewer-password'])
+        result = {'checks': [{'name': 'jellyfin:accounts', 'status': 'passed'}],
+                  'pending': [{'name': 'seerr:accounts', 'action': 'Finish browser setup'}], 'errors': []}
+        with mock.patch.object(onboarding, 'eligible_apps', return_value=['jellyfin']), \
+             mock.patch.object(onboarding, 'onboarding', return_value=result) as enroll, \
+             mock.patch.object(self.ui, 'invoke') as invoke:
+            self.assertEqual({'jellyfin'}, self.ui.enroll_accounts(c))
+        supplied = enroll.call_args.args[1]
+        self.assertEqual('fixture-admin', supplied['admin_username'])
+        self.assertEqual('fixture-viewer-password', supplied['viewer_password'])
+        self.assertNotIn('fixture-admin-password', '\n'.join(self.messages))
+        self.assertNotIn('fixture-viewer-password', '\n'.join(self.messages))
+        invoke.assert_not_called()
+
+    def test_interrupted_password_input_does_not_enroll_any_accounts(self):
+        from samurai_stack import onboarding
+        c = dict(self.c, install_root=str(self.root / 'install'))
+        self.read.side_effect = ['yes', 'fixture-admin']
+        self.ui.secret_fn = mock.Mock(return_value='')
+        with mock.patch.object(onboarding, 'eligible_apps', return_value=['jellyfin']), \
+             mock.patch.object(onboarding, 'onboarding') as enroll:
+            self.assertIsNone(self.ui.enroll_accounts(c))
+        enroll.assert_not_called()
+
+    def test_saved_account_enrollment_resumes_without_password_prompts(self):
+        from samurai_stack import onboarding
+        c = dict(self.c, install_root=str(self.root / 'install'))
+        secret = engine.secret_path(c, 'onboarding_credentials.json')
+        secret.parent.mkdir(parents=True); secret.write_text('{}')
+        result = {'checks': [], 'pending': [{'name': 'jellyfin:accounts', 'action': 'Resolve changed account'}], 'errors': []}
+        with mock.patch.object(onboarding, 'eligible_apps', return_value=['jellyfin']), \
+             mock.patch.object(onboarding, 'onboarding', return_value=result) as enroll:
+            self.assertIsNone(self.ui.enroll_accounts(c))
+        self.assertIsNone(enroll.call_args.args[1]); self.read.assert_not_called()
+
+    def test_password_confirmation_and_spaces_are_preserved(self):
+        self.ui.secret_fn = mock.Mock(side_effect=['fixture-password', 'different-password',
+                                                   ' fixture password ', ' fixture password '])
+        self.assertEqual(' fixture password ', self.ui.account_password('Administrator'))
+
     def test_healthy_containers_without_current_guard_require_reviewed_apply(self):
         planned = self.install_fixture(guarded=False)
         self.read.return_value = 'yes'

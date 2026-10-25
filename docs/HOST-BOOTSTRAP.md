@@ -62,8 +62,15 @@ guest. The script does not reboot or force-stop the VM to fix that channel.
 
 An active `cdrom:` source from an installation DVD can make `apt-get update`
 return 100 even when all online mirrors work. Inspection detects that source
-before applying changes. Preserve a backup, disable only the installation-media
-entry, and keep the online OS mirrors. In a `.list` file, comment its entire
+before applying changes. Guided step 1 offers a separate default-no confirmation
+to disable only active installation-media entries. It requires a configured
+online OS mirror, saves private originals, and makes a fresh package plan before
+the normal installation confirmation. It never deletes the repository file or
+disables signature verification. Mixed network/DVD deb822 stanzas require manual
+separation. Unknown APT failures do not trigger this repair.
+
+For manual repair or the advanced bootstrap, preserve a backup, disable only the
+installation-media entry, and keep the online OS mirrors. In a `.list` file, comment its entire
 `deb cdrom:` line. In a `.sources` file, set `Enabled: no` in the stanza for
 that source; do not disable unrelated network stanzas. Then run `apt-get update`
 and restart guided step 1, or review a fresh CLI plan. An empty

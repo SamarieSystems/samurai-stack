@@ -1,7 +1,8 @@
 """Friendly host preparation over the reviewed, non-destructive bootstrap.
 
 The guided interface keeps the complete plan/hash gate in bootstrap-host.sh.
-Only its presentation changes: one confirmation, private evidence, progress.
+Installation-media repair requires a separate review and approval before the
+normal package confirmation. Diagnostic text and original sources stay private.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import sys
 import time
 import uuid
 
+from . import apt_sources
 from .safety import SafetyError, atomic_write, digest, no_symlinks, write_json
 
 
@@ -139,6 +141,50 @@ def _object(result, label):
     return value
 
 
+def _installation_media_refused(result):
+    """Only the bootstrap's known preflight refusal permits a repair offer."""
+    return bool(result.returncode and any(
+        line.startswith('bootstrap refused: Active APT installation-media source detected;')
+        for line in (result.stderr or '').splitlines()))
+
+
+def _repair_install_media(root, attempt, confirm, emit):
+    """Review a private source plan, then apply it only after a separate yes."""
+    try:
+        plan = apt_sources.inspect_install_media(root)
+        if not plan['changes']:
+            raise SetupHostError('The installation-media source changed during inspection. Rerun Prepare host for a fresh review')
+        write_json(attempt / 'apt-source-plan.json', plan)
+        emit('APT still has an active installation DVD/CD-ROM source. Setup can disable only those installation-media entries:')
+        for change in plan['changes']:
+            emit('  /' + change['path'] + ': ' + str(change['disabled_entries']) + ' active installation-media entries')
+        emit(str(plan['network_sources']) + ' configured online OS mirror entries will be preserved. Their availability is checked by APT during preparation.')
+        emit('Source files are not deleted. Existing entries and comments are retained, and private originals are saved before any change.')
+        if not confirm('Disable only these installation-media entries now? [y/N] '):
+            emit('APT sources are unchanged. Prepare host was skipped; the repair review is retained privately.')
+            return None
+        result = apt_sources.apply_install_media(plan, attempt / 'apt-source-backup', root=root)
+        emit('Installation-media entries disabled. Private originals: ' + result['backup_directory'])
+        emit('Inspecting the guest again for a fresh package plan before installation approval.')
+        return result
+    except SetupHostError:
+        raise
+    except Exception as exc:
+        # Private evidence may include source paths or an OS diagnostic. Public
+        # guidance is fixed text and must never interpolate repository content.
+        write_json(attempt / 'apt-source-error.json', {'error_type': type(exc).__name__, 'reason': str(exc)})
+        hints = {
+            'No active HTTP(S) OS mirror was confirmed; configure an online OS mirror manually before disabling installation media':
+                'No active online OS mirror was confirmed. Configure an HTTP(S) OS mirror before disabling installation media',
+            'APT stanza mixes installation media with other sources; split it manually before repair':
+                'An APT stanza combines installation media and other sources. Split that stanza manually so online sources remain enabled',
+            'APT sources changed after review; inspect a fresh repair plan':
+                'APT sources changed after review. Rerun Prepare host to review a fresh source repair plan',
+        }
+        hint = hints.get(str(exc), 'The APT source repair could not proceed safely. Review the private APT repair evidence before changing sources')
+        raise SetupHostError(hint + '; no package installation was attempted') from exc
+
+
 def _prepare_host(repo: Path, root: Path, execute, confirm, emit) -> bool:
     script = no_symlinks(repo / 'scripts/bootstrap-host.sh')
     if not script.is_file():
@@ -153,7 +199,15 @@ def _prepare_host(repo: Path, root: Path, execute, confirm, emit) -> bool:
         write_json(result_path, summary, replace=result_path.exists())
 
     try:
-        document = _object(execute([*command, '--plan'], attempt, 'plan', emit), 'Host inspection')
+        inspection = execute([*command, '--plan'], attempt, 'plan', emit)
+        if _installation_media_refused(inspection):
+            repaired = _repair_install_media(root, attempt, confirm, emit)
+            if repaired is None:
+                finish('declined', prerequisite='apt_installation_media')
+                return False
+            summary['apt_source_repair'] = repaired
+            inspection = execute([*command, '--plan'], attempt, 'plan-after-source-repair', emit)
+        document = _object(inspection, 'Host inspection')
         signed = dict(document)
         accepted = signed.pop('review_hash', None)
         if document.get('kind') != 'guest-bootstrap' or not accepted or digest(signed) != accepted:

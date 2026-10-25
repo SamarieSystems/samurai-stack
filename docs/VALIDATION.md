@@ -3,6 +3,47 @@
 October 24, 2026. These are measured results from the release candidate, not a
 claim that every supported provider, device or deployment has been tested.
 
+## Alpha 4 hardlinks and first accounts
+
+October 25, 2026. Tests ran in isolated disposable VM 102. The friend's machine,
+household services, NAS, VPN credentials and personal files were not modified.
+
+- All 338 tests passed on Linux. Windows passed 316 with 22 platform/runtime
+  skips. The 32 account tests also passed as an ordinary Linux user, with one
+  root-only permission test skipped. All 16 Compose configurations passed the
+  real `docker compose config --quiet` parser without starting containers.
+- Against real Sonarr/Radarr APIs, the focused repair changed both
+  `copyUsingHardlinks` fields from false to true and read them back. A second
+  apply issued no PUT; read-only verification issued GETs only. All unrelated
+  media-management settings, container IDs/start times, and media file
+  inodes/sizes/mtimes were unchanged. The standalone zipapp CLI passed too.
+- A separate empty application root and media tree completed reviewed storage
+  and media applies. The pre-start receipt reserved all four supported apps.
+  Jellyfin enrolled its administrator and restricted viewer; Sonarr, Radarr
+  and Prowlarr enrolled their UI administrator. Real logins passed. Jellyfin
+  rejected the viewer and anonymous caller at an administrator endpoint. Starr
+  rejected anonymous access and incorrect passwords.
+- Account resume used the exact saved credentials, issued no account/config
+  writes, and did not restart containers. Jellyfin networking readback confirmed
+  no supported automatic port-mapping flag was enabled. Seerr, Bazarr and
+  SABnzbd remained explicitly manual, rather than being reported complete.
+- Reviewed DVD-source repair tests cover legacy and deb822 formats, preserved
+  online mirrors/comments, private original backups, stale reviews, decline,
+  mixed-source refusal, partial-write evidence and no repair on generic APT 100.
+  These used controlled source fixtures, not the household's APT configuration.
+
+The account tests caught an actual Jellyfin API incompatibility before release:
+the public-user list can hide its initial account, and obsolete password flags
+do not prove a password exists. First enrollment now requires successful
+authentication of the actual empty-password seed. The pinned Jellyfin version
+does not atomically exclude a separate human's simultaneous startup wizard;
+operators must leave that wizard alone during automatic enrollment.
+
+Settings readback and a filesystem hardlink probe are separate from a real
+Starr download/import inode test. That complete import, commercial-provider VPN
+commissioning and the independent operator rollout remain release gates in
+[the 0.2 roadmap](ROADMAP.md).
+
 ## Alpha 3 guided installer acceptance
 
 October 25, 2026. The new `./setup` entry point was exercised in actual Linux

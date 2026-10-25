@@ -13,6 +13,9 @@ class VendorModel:
         self.calls = []
         self.collections = {}
         self.roots = {"sonarr": [], "radarr": []}
+        self.media_management = {s: {"id": 1, "copyUsingHardlinks": True, "recycleBin": "/existing/recycle",
+                                    "setPermissionsLinux": False, "minimumFreeSpaceWhenImporting": 250,
+                                    "unrelatedFutureSetting": {"enabled": False}} for s in ("sonarr", "radarr")}
         self.sab = {"download_dir": "Downloads/incomplete", "complete_dir": "Downloads/complete"}
         self.sab_categories = []
         self.bazarr = {"general": {}, "sonarr": {}, "radarr": {}}
@@ -32,6 +35,10 @@ class VendorModel:
         uri = urlsplit(url)
         ports = {8989: "sonarr", 7878: "radarr", 9696: "prowlarr", 6767: "bazarr", 5055: "seerr", 8096: "jellyfin", 8081: "qbit", 8080: "sab"}
         service, path = ports.get(uri.port), uri.path
+        if path.startswith('/api/v3/config/mediamanagement'):
+            if method == 'PUT' and not self.ignore_writes:
+                self.media_management[service] = copy.deepcopy(json)
+            return copy.deepcopy(self.media_management[service])
         if "/delayprofile" in path:
             if method == "PUT" and not self.ignore_writes:
                 self.delay_profiles[service] = [copy.deepcopy(json)]
@@ -279,6 +286,113 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         login = next(form for method, url, body, form in vendor.calls if url.endswith("/auth/login"))
         self.assertEqual(login["password"], " leading and trailing spaces ")
+
+
+class HardlinksIntegrationTests(unittest.TestCase):
+    def vendor(self, enabled=False):
+        vendor = VendorModel()
+        for service in ('radarr', 'sonarr'):
+            vendor.media_management[service]['copyUsingHardlinks'] = enabled
+        return vendor
+
+    def test_configure_changes_only_hardlink_flag_and_reads_back_both_services(self):
+        vendor = self.vendor()
+        before = copy.deepcopy(vendor.media_management)
+        result = integrations.configure_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertEqual(('configured', 'hardlinks-only'), (result['status'], result['scope']))
+        self.assertEqual({'radarr:hardlinks', 'sonarr:hardlinks'}, {item['name'] for item in result['checks']})
+        for service in ('radarr', 'sonarr'):
+            expected = dict(before[service], copyUsingHardlinks=True)
+            self.assertEqual(expected, vendor.media_management[service])
+        writes = [(method, url, body) for method, url, body, _ in vendor.calls if method != 'GET']
+        self.assertEqual(2, len(writes))
+        for method, url, body in writes:
+            self.assertEqual('PUT', method)
+            self.assertEqual('/api/v3/config/mediamanagement/1', urlsplit(url).path)
+            service = 'radarr' if urlsplit(url).port == 7878 else 'sonarr'
+            self.assertEqual(dict(before[service], copyUsingHardlinks=True), body)
+        self.assertEqual(6, len(vendor.calls))
+        self.assertTrue(all(urlsplit(url).path in {'/api/v3/config/mediamanagement', '/api/v3/config/mediamanagement/1'} for _, url, _, _ in vendor.calls))
+        self.assertNotIn('/existing/recycle', json.dumps(result))
+
+    def test_repeated_configure_and_verify_are_readonly_after_setting_is_enabled(self):
+        vendor = self.vendor()
+        self.assertTrue(integrations.configure_hardlinks(config(), request=vendor, secret_resolver=secrets)['ok'])
+        vendor.calls.clear()
+        again = integrations.configure_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertTrue(again['ok'])
+        self.assertEqual(['GET', 'GET'], [call[0] for call in vendor.calls])
+        vendor.calls.clear()
+        verified = integrations.verify_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertEqual('verified', verified['status'])
+        self.assertEqual(['GET', 'GET'], [call[0] for call in vendor.calls])
+
+    def test_verify_disabled_setting_fails_without_writes(self):
+        vendor = self.vendor()
+        before = copy.deepcopy(vendor.media_management)
+        result = integrations.verify_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertEqual('failed', result['status'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(before, vendor.media_management)
+        self.assertTrue(all(method == 'GET' for method, *_ in vendor.calls))
+        self.assertEqual({'radarr:hardlinks', 'sonarr:hardlinks'}, {item['name'] for item in result['errors']})
+
+    def test_successful_put_without_persisted_readback_is_failure(self):
+        vendor = self.vendor(); vendor.ignore_writes = True
+        result = integrations.configure_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertEqual('failed', result['status'])
+        self.assertEqual(2, len(result['errors']))
+        self.assertTrue(all(value['copyUsingHardlinks'] is False for value in vendor.media_management.values()))
+        self.assertEqual(2, sum(method == 'PUT' for method, *_ in vendor.calls))
+
+    def test_unknown_or_nonboolean_schema_refuses_before_writing(self):
+        for value in (None, [], {}, {'id': 1, 'useHardlinks': True},
+                      {'id': 1, 'copyUsingHardlinks': 'true'}, {'id': 1, 'copyUsingHardlinks': 1},
+                      {'id': 1, 'copyUsingHardlinks': None}, {'id': '1', 'copyUsingHardlinks': False},
+                      {'id': True, 'copyUsingHardlinks': False}, {'id': 0, 'copyUsingHardlinks': False}):
+            for operation in (integrations.configure_hardlinks, integrations.verify_hardlinks):
+                with self.subTest(value=value, operation=operation.__name__):
+                    vendor = self.vendor()
+                    vendor.media_management = {service: copy.deepcopy(value) for service in ('radarr', 'sonarr')}
+                    result = operation(config(), request=vendor, secret_resolver=secrets)
+                    self.assertEqual('failed', result['status'])
+                    self.assertTrue(all(method == 'GET' for method, *_ in vendor.calls))
+
+    def test_readback_requires_boolean_true_and_matching_resource_id(self):
+        for readback in ({'id': 1, 'copyUsingHardlinks': 'true'}, {'id': 1, 'copyUsingHardlinks': 1},
+                         {'id': 1}, {'id': 2, 'copyUsingHardlinks': True}):
+            with self.subTest(readback=readback):
+                vendor = self.vendor()
+                def transport(method, url, **kwargs):
+                    response = vendor(method, url, **kwargs)
+                    service = 'radarr' if urlsplit(url).port == 7878 else 'sonarr'
+                    if method == 'GET' and vendor.media_management[service]['copyUsingHardlinks'] is True:
+                        return copy.deepcopy(readback)
+                    return response
+                result = integrations.configure_hardlinks(config(), request=transport, secret_resolver=secrets)
+                self.assertEqual('failed', result['status'])
+
+    def test_authentication_and_vendor_errors_remain_sanitized(self):
+        vendor = self.vendor(); vendor.raise_secret = True
+        result = integrations.configure_hardlinks(config(), request=vendor, secret_resolver=secrets)
+        self.assertEqual('failed', result['status'])
+        self.assertNotIn('never-print-this', json.dumps(result))
+        self.assertNotIn('test-only-placeholder', json.dumps(result))
+        missing = integrations.configure_hardlinks(config(), request=self.vendor(), secret_resolver=lambda _: '')
+        self.assertEqual('pending', missing['status'])
+        self.assertFalse(missing['ok'])
+
+    def test_normal_media_and_torrent_entrypoints_include_both_hardlink_checks(self):
+        for stage in (2, 3):
+            with self.subTest(stage=stage):
+                vendor = self.vendor()
+                configured = integrations.configure_stage(config(), stage, request=vendor, secret_resolver=secrets)
+                self.assertTrue(configured['ok'], configured)
+                verified = integrations.verify_stage(config(), stage, request=vendor, secret_resolver=secrets)
+                self.assertTrue(verified['ok'], verified)
+                expected = {'radarr:hardlinks', 'sonarr:hardlinks'}
+                self.assertTrue(expected.issubset({item['name'] for item in configured['checks']}))
+                self.assertTrue(expected.issubset({item['name'] for item in verified['checks']}))
 
 
 if __name__ == "__main__":

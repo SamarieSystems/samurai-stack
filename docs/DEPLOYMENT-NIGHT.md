@@ -16,6 +16,11 @@ replacement for checking the actual machine and provider. Read
 [VALIDATION.md](VALIDATION.md) for the evidence and remaining limits.
 The individual plan/apply commands remain in [Advanced CLI](ADVANCED.md).
 
+If Samurai is already installed and the immediate task is its hardlink setting,
+use the [existing-install repair](INSTALL.md#enable-hardlinks-on-an-existing-installation).
+Keep that VM, configuration and data tree; the new-install sequence below is not
+needed for this focused change.
+
 ## Collect these facts first
 
 | Area | Information to have before starting |
@@ -106,6 +111,37 @@ Even on an existing Linux Docker host, unowned app directories, colliding
 projects/ports or conflicting Docker packages/repositories require deliberate
 review. A different dedicated directory does not by itself isolate every host
 port or Docker lifecycle action. The new-VM route avoids those collisions.
+
+## Existing Samurai installation: hardlink repair
+
+On its media VM, from the directory containing the existing `site.json`, run
+`./setup --hardlinks`. It checks Sonarr and Radarr, asks before enabling a disabled
+flag, then verifies API readback. The advanced equivalent is:
+
+```sh
+sudo ./stack --config site.json hardlinks
+sudo ./stack --config site.json hardlinks --apply
+sudo ./stack --config site.json hardlinks
+```
+
+The flag is `copyUsingHardlinks`, shown in both apps as **Use Hardlinks instead
+of Copy**. This action preserves other settings and existing media. It does not
+restart or redeploy services, scan/import files, re-enroll accounts, alter VPN
+policy or migrate storage. A standalone `samurai-hardlinks.pyz` repair asset is
+planned for older ZIP installations; see [INSTALL.md](INSTALL.md) for its intended
+interface and publication/checksum boundary.
+
+Keep the actual configured path. `/opt/samurai` is this project's conventional
+local app-state default. `/srv/samurai-data` is the guided local-data default;
+an installation using a mounted `/mnt/media/samurai` tree should keep that tree.
+Starr and download clients use the common `/data` container layout under either
+host prefix. The [path explanation](INSTALL.md#what-the-paths-mean) covers why
+matching the real filesystem matters more than renaming directories.
+
+API readback proves the flags are enabled. Before calling the download/import
+path commissioned, verify matching device/inode numbers for a controlled seeding
+torrent and its normal library import, then test playback. The narrow repair
+does not perform that import or retroactively deduplicate existing copies.
 
 ## Credentials and access
 
@@ -251,3 +287,25 @@ tree, imports correctly and plays, with a proven VPN stop/recovery test and a
 successful guest reboot. Add personal photos only after a separate restore has
 actually worked. Home Assistant, MediaBot, public access and local LLMs are
 separate optional projects, not requirements for this rollout.
+
+## Proposed v0.2 readiness gates
+
+These are acceptance criteria for the next release, not claims about an untested
+friend's hardware or provider:
+
+- Complete fresh-guest setup through both a normal Debian installation and a
+  cloud image. Missing guest-agent channels, active installation-DVD sources and
+  package failures must stop with useful diagnostics, preserving existing
+  repositories, packages and data.
+- Resume an existing source-ZIP installation with its original configuration,
+  credentials and ownership markers. Verify the focused hardlink repair without
+  container recreation, restarts or media changes.
+- Complete a controlled download, normal hardlinked library import and playback
+  on the intended client. Test actual transcoding separately if that deployment
+  enables GPU acceleration.
+- Commission the actual VPN provider with positive egress, controlled tunnel
+  failure, recovery and upload checks. Test guest reboot and missing-NAS startup
+  refusal on a disposable fixture before relying on the installation.
+- Restore application configuration and any enabled personal-data services from
+  independent backups. Document recovery and retain clean source/artifact
+  credential audits before inviting other operators to deploy the release.

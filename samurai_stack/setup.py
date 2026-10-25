@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -273,6 +274,27 @@ class GuidedSetup:
         from .setup_host import prepare_host
         return prepare_host(self.repo)
 
+    def hardlinks(self):
+        self.say('Check Sonarr and Radarr hardlink settings in this existing installation.')
+        self.say('This does not deploy containers, import media, move files or change library paths.')
+        code, result = self.invoke(['hardlinks'], 'Reading both hardlink settings...')
+        if code == 0 and result.get('ok') is True:
+            self.say('Hardlinks are already enabled and verified in both applications.')
+            return True
+        self.report(result)
+        if code != 2 or not self.yes('Enable hardlinks in both applications and verify the saved settings?', False):
+            return False
+        code, result = self.invoke(['hardlinks', '--apply'], 'Enabling hardlinks and reading the saved settings back...')
+        if code != 0 or result.get('ok') is not True:
+            self.report(result)
+            return False
+        code, result = self.invoke(['hardlinks'], 'Independently verifying both settings...')
+        self.report(result)
+        if code == 0 and result.get('ok') is True:
+            self.say('Sonarr and Radarr hardlinks are enabled and verified. Existing media was not imported or changed.')
+            return True
+        return False
+
     def storage(self):
         from .setup_storage import ensure_site_config
         c = ensure_site_config(self.config_path, input_fn=self.read, output_fn=self.say)
@@ -284,14 +306,97 @@ class GuidedSetup:
             return True
         return False
 
+    def account_password(self, label):
+        while True:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', getpass.GetPassWarning)
+                try:
+                    password = (self.secret_fn or getpass.getpass)(label + ' password (Enter to pause): ')
+                    if not password:
+                        return None
+                    repeated = (self.secret_fn or getpass.getpass)('Repeat ' + label.lower() + ' password: ')
+                except getpass.GetPassWarning:
+                    raise SafetyError('Hidden input needs an interactive terminal. No credential was saved.') from None
+            if password != repeated:
+                self.say('Passwords differ. Try again; nothing was saved.')
+            elif not 12 <= len(password) <= 256 or any(ord(char) < 32 or ord(char) == 127 for char in password):
+                self.say('Use 12-256 characters without control characters. Spaces are preserved.')
+            else:
+                return password
+
+    def account_name(self, label, *, different_from=None):
+        while True:
+            value = self.read(label + ' username (Enter to pause): ').strip()
+            if not value:
+                return None
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.@+-]{0,63}', value):
+                self.say('Use 1-64 letters, digits, dot, underscore, @, + or hyphen; start with a letter or digit.')
+            elif different_from and value.casefold() == different_from.casefold():
+                self.say('Choose a different username for everyday viewing.')
+            else:
+                return value
+
+    def enroll_accounts(self, c):
+        from . import onboarding
+        eligible = onboarding.eligible_apps(c)
+        if not eligible:
+            self.say('Existing application accounts are preserved. Finish any remaining first-run screens below; setup will not reset them.')
+            return set()
+        saved = engine.secret_path(c, 'onboarding_credentials.json')
+        credentials = None
+        if saved.exists():
+            self.say('Checking the saved application administrator and viewer accounts. Passwords will not be replaced.')
+        else:
+            self.say('Set one application administrator login for Jellyfin, Sonarr, Radarr and Prowlarr, plus a separate everyday Jellyfin viewer.')
+            self.say('These are application accounts. Use new passwords, separate from the Linux root or SSH login.')
+            self.say('Leave their browser setup wizards alone until this automatic enrollment finishes; do not create the same accounts in parallel.')
+            if not self.yes('Create and verify these fresh application accounts now?', True):
+                return set()
+            credentials = {}
+            for role in ('admin', 'viewer'):
+                label = 'Administrator' if role == 'admin' else 'Everyday viewer'
+                username = self.account_name(label, different_from=credentials.get('admin_username'))
+                if username is None:
+                    return None
+                while True:
+                    password = self.account_password(label)
+                    if password is None:
+                        return None
+                    if role == 'viewer' and password == credentials['admin_password']:
+                        self.say('Use a different password for everyday viewing.')
+                        continue
+                    break
+                credentials[role + '_username'], credentials[role + '_password'] = username, password
+        self.say('Enrolling supported accounts and testing real logins and permissions...')
+        result = onboarding.onboarding(c, credentials)
+        write_json(self._state_dir() / ('accounts-' + uuid.uuid4().hex + '.json'), result)
+        verified = {item['name'].split(':')[0] for item in result['checks'] if item.get('status') == 'passed'}
+        for app in sorted(verified):
+            self.say('  ' + APP_NAMES.get(app, app) + ': accounts and access checks passed.')
+        unresolved = {'pending': [item for item in result['pending'] if item['name'].split(':')[0] in eligible],
+                      'errors': result['errors']}
+        if unresolved['pending'] or unresolved['errors']:
+            self.report(unresolved)
+            self.say('Account setup paused. The private credentials and application state were retained for retry.')
+            return None
+        return verified
+
     def media(self):
         c = self.config()
         if not self.install(c, 2):
             return False
+        enrolled = self.enroll_accounts(c)
+        if enrolled is None:
+            return False
         self.say('\nOpen these addresses from a browser on your LAN:')
         self.endpoints(c, 2)
-        self.say('1. Create administrator logins in Sonarr, Radarr, Prowlarr and Bazarr.')
-        self.say('2. Finish the Jellyfin administrator wizard; create an API key in Dashboard > API Keys.')
+        remaining = [APP_NAMES[name] for name in ('sonarr', 'radarr', 'prowlarr', 'bazarr') if name not in enrolled]
+        if remaining:
+            self.say('1. Create/verify administrator logins in ' + ', '.join(remaining) + '.')
+        if 'jellyfin' not in enrolled:
+            self.say('2. Finish the Jellyfin administrator wizard; create an API key in Dashboard > API Keys.')
+        else:
+            self.say('2. Jellyfin administrator, everyday viewer and API key are ready. Use the viewer for playback.')
         self.say('3. Finish Seerr onboarding against that Jellyfin address; its API key is in Settings > General.')
         self.say('4. Choose your quality profiles, indexers and subtitle languages/providers.')
         if c['features'].get('usenet'):
@@ -497,16 +602,23 @@ class GuidedSetup:
             for number, label in STEPS.items():
                 status = state.get(str(number), {}).get('status', 'not started')
                 self.say('  ' + str(number) + '. ' + label + ' [' + status + ']')
+            self.say('  h. Check/enable hardlinks in existing Sonarr and Radarr')
             self.say('Saved statuses show the last setup check, not live service monitoring.')
             default = next((i for i in range(1, 6) if state.get(str(i), {}).get('status') != 'verified'), 0)
             value = self.read('Choose a step, q to quit' + (' [' + str(default) + ']' if default else '') + ': ').strip().lower()
             if value in {'q', 'quit', 'exit'} or (not value and not default):
                 self.say('Saved. Run ./setup whenever you want to continue.')
                 return 0
+            if value in {'h', 'hardlinks'}:
+                try:
+                    self.hardlinks()
+                except (SafetyError, OSError, ValueError, RuntimeError) as exc:
+                    self.say('Hardlink check paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
+                continue
             if not value:
                 value = str(default)
             if value not in {'1', '2', '3', '4', '5', '6'}:
-                self.say('Choose a number from 1 to 6, or q.')
+                self.say('Choose a number from 1 to 6, h for hardlinks, or q.')
                 continue
             try:
                 self.step(int(value))
@@ -524,7 +636,10 @@ def main(argv=None):
     parser.add_argument('step', nargs='?', type=int, choices=range(1, 7))
     parser.add_argument('--config', default='site.json', help='Advanced: existing private site file')
     parser.add_argument('--version', action='version', version=__version__)
+    parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
     args = parser.parse_args(argv)
+    if args.hardlinks and args.step:
+        parser.error('Choose a numbered setup step or --hardlinks, not both')
     if not sys.platform.startswith('linux') or os.geteuid() != 0 or Path('/etc/pve').exists():
         print('Run ./setup as administrator inside the intended Linux VM, not on the Proxmox host.', file=sys.stderr)
         return 1
@@ -533,6 +648,8 @@ def main(argv=None):
         return 1
     ui = GuidedSetup(Path(__file__).resolve().parent.parent, args.config)
     try:
+        if args.hardlinks:
+            return 0 if ui.hardlinks() else 2
         if args.step:
             try:
                 return 0 if ui.step(args.step) else 2
