@@ -455,6 +455,24 @@ class GuidedSetupTests(unittest.TestCase):
         self.assertIn('requires --config', message.getvalue())
         resolve.assert_not_called()
 
+    def test_fresh_starts_blank_menu_without_resolving_an_old_site(self):
+        with mock.patch('samurai_stack.setup_fresh.begin_fresh', return_value=self.root / 'new-session/site.json') as begin, \
+             mock.patch('samurai_stack.setup_recovery.resolve_configuration') as resolve, \
+             mock.patch.object(self.ui, 'menu', return_value=0) as menu:
+            code, text = self.run_cli(['--fresh'])
+        self.assertEqual(0, code)
+        begin.assert_called_once_with()
+        resolve.assert_not_called()
+        menu.assert_called_once_with()
+        self.assertIn('all six phases start as not started', text)
+
+    def test_fresh_cannot_be_combined_with_resume_or_maintenance(self):
+        for arguments in (['--config', 'old.json'], ['3'], ['--recover'], ['--choose-storage'], ['--hardlinks']):
+            with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as captured:
+                    setup.main(['--fresh', *arguments])
+                self.assertEqual(2, captured.exception.code)
+
     def test_storage_correction_accepts_explicit_config(self):
         with mock.patch.object(self.ui, 'choose_storage', return_value=True) as choose:
             code, _ = self.run_cli(['--config', str(self.ui.config_path), '--choose-storage'])

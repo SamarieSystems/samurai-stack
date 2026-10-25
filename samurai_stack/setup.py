@@ -801,10 +801,13 @@ def main(argv=None):
     parser.add_argument('step', nargs='?', type=int, choices=range(1, 7))
     parser.add_argument('--config', default=None, help='Advanced: explicit existing private site file; otherwise recover the host configuration')
     parser.add_argument('--recover', action='store_true', help='Read-only container, mount and configuration recovery inventory')
+    parser.add_argument('--fresh', action='store_true', help='Start a new blank phases 1-6 wizard after checking obsolete installer metadata; never delete application or media data')
     parser.add_argument('--choose-storage', action='store_true', help='Correct an empty, unregistered installation storage choice without deleting media')
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
     args = parser.parse_args(argv)
+    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks):
+        parser.error('Use --fresh alone to start a new blank phases 1-6 wizard')
     if args.recover and (args.step or args.hardlinks or args.choose_storage):
         parser.error('Choose --recover alone; it never runs an installation step')
     if args.choose_storage and (args.step or args.hardlinks):
@@ -825,7 +828,12 @@ def main(argv=None):
             print(json.dumps(inventory(), indent=2, sort_keys=True))
             return 0
         from .setup_recovery import resolve_configuration
-        if args.step == 1 and args.config is None:
+        if args.fresh:
+            from .setup_fresh import begin_fresh
+            config_path = begin_fresh()
+            print('Fresh setup: all six phases start as not started. No previous choices, credentials or progress were reused.')
+            print('Existing packages and mounted filesystems will be checked in their normal phases. Existing media stays in place.')
+        elif args.step == 1 and args.config is None:
             # Repairing Docker/host prerequisites must remain possible while
             # Docker is unavailable. No deployment UUID or site is created.
             from .installation_registry import draft_directory

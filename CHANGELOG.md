@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-alpha.7 - 2026-10-25
+
+- Add `./setup --fresh` for an intentional application reset. Open a new blank
+  phases 1-6 wizard without an old `site.json`, credentials or setup cache.
+  Phase 1 checks existing OS prerequisites rather than reinstalling working
+  packages; storage selection and new account prompts follow normally.
+- Retire old installer configuration and exact generated systemd units only
+  after proving their application roots are absent or empty and their projects
+  and installation UUIDs have zero containers, including stopped ones. Preserve
+  originals in private archives. Old progress is retained without reuse;
+  existing appdata blocks the fresh-start path.
+- Keep the new session outside the source directory. Normal setup resumes it
+  before storage registration and uses its canonical configuration afterward;
+  running `--fresh` again deliberately opens another blank session.
+- Leave mounted filesystems, storage markers and existing media untouched by
+  fresh-start cleanup. New storage uses a new empty directory; no formatting,
+  media migration, credential reuse or application-data overwrite is performed.
+
 ## 0.1.0-alpha.6 - 2026-10-25
 
 - Save verified installation configuration and guided progress outside the

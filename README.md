@@ -5,7 +5,7 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.1.0 alpha 6.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
+**0.1.0 alpha 7.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
 
 ## Start here
 
@@ -13,11 +13,19 @@ Inside a **new Debian 13 KVM/QEMU VM**, open a root console (`su -` if needed):
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.6 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.7 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
 From a normal user account, the installer requests sudo when available; otherwise use the root console. It does not need `pip`, a Python virtual environment or copied plan hashes. [Quickstart](docs/QUICKSTART.md) covers each screen, media accounts and the remaining provider choices.
+
+**Already wiped the old applications and want to start over?** Run
+`./setup --fresh`, or `python3 /path/to/samurai-setup.pyz --fresh` with the
+verified portable asset. This opens a blank phases 1-6 wizard with no old site,
+credentials or cached progress. It safely archives eligible stale installer
+state and services; existing appdata or containers block takeover. Existing
+media and mounts stay in place. Use normal setup to resume the new session;
+`--fresh` again means another blank session. See [fresh setup](docs/QUICKSTART.md#start-fresh-after-removing-the-old-applications).
 
 Already have the release source? Run `./setup`. After storage verification,
 configuration is saved outside the source folder at
@@ -27,7 +35,7 @@ checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.pyz` from the
-[alpha 6 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6),
+[alpha 7 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7),
 check its supplied `SHA256SUMS`, then run as root:
 
 ```sh

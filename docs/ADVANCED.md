@@ -11,6 +11,9 @@ states which parts of the current alpha have actually been exercised.
 Gather the [deployment-night intake](DEPLOYMENT-NIGHT.md) first if you are setting
 this up for someone else; it lists the access, hardware and manual choices needed.
 
+An intentional application wipe uses the guided `./setup --fresh` entry point,
+not advanced resume commands that require an old site. See [fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
+
 ## 1. Choose where it runs
 
 Use an existing supported Linux VM, or follow [the Proxmox foundation guide](PROXMOX.md)
@@ -42,7 +45,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.1.0-alpha.6
+git checkout v0.1.0-alpha.7
 python3 stack --version
 ```
 
@@ -57,7 +60,7 @@ configuration on each machine.
 ## 2. Connect storage, then describe the installation
 
 In these examples, `site.json` means your actual private configuration. Guided
-alpha 6 installations save it under
+current guided installations save it under
 `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`; use that
 absolute path with the advanced CLI's `--config` option instead of generating
 another site in a new checkout. Explicit older private site paths remain valid.

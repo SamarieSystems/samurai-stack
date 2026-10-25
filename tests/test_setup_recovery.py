@@ -26,6 +26,9 @@ class SetupRecoveryTests(unittest.TestCase):
         self.remember = self.patch(registry, "remember_verified")
         self.draft = self.patch(registry, "draft_directory", return_value=self.setup_root / self.host)
         self.patch(registry, "host_identity", return_value=self.host)
+        self.pending = patch('samurai_stack.setup_fresh.pending_fresh_configuration', return_value=None)
+        self.pending_mock = self.pending.start()
+        self.addCleanup(self.pending.stop)
         self.inventory = self.patch(setup_recovery.recovery, "inventory", return_value={
             "containers": [], "systemd_units": [], "warnings": []})
         self.patch(setup_recovery.shutil, "which", return_value=None)
@@ -60,6 +63,17 @@ class SetupRecoveryTests(unittest.TestCase):
         self.remember.assert_not_called()
         self.inventory.assert_not_called()
         self.draft.assert_not_called()
+
+    def test_pending_fresh_session_precedes_an_old_source_file(self):
+        original = self.private_source()
+        snapshot = original.read_bytes()
+        fresh = self.setup_root / self.host / 'fresh-7894de85-de4f-402c-b6e8-84955d96382a/site.json'
+        self.pending_mock.return_value = fresh
+        self.assertEqual(self.resolve(output_fn=lambda _: None), fresh)
+        self.assertFalse(fresh.exists())
+        self.assertEqual(original.read_bytes(), snapshot)
+        self.inventory.assert_not_called()
+        self.remember.assert_not_called()
 
     def test_source_replacement_reuses_canonical_registry_before_new_source(self):
         old = self.record()

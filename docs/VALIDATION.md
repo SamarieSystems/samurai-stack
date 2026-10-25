@@ -3,6 +3,43 @@
 The dated sections record measured results for each release candidate. They
 do not claim that every provider, device or deployment has been tested.
 
+## Alpha 7 explicit fresh setup
+
+October 25, 2026. The exact portable payload ran in a real root Linux
+pseudo-terminal inside isolated disposable VM 102. The fixture had no source
+site or application directory, but retained an enabled broken generated unit,
+a canonical reservation for that missing app root and existing media.
+
+- `--fresh` archived the obsolete unit byte-identically and preserved the old
+  canonical configuration in a private archive. The wizard opened with all six
+  phases marked not started and no inherited configuration or progress.
+- The test quit before phase 1, then relaunched without arguments. The private
+  fresh-session pointer resumed that same blank session without an old site
+  path or another `--fresh` invocation.
+- Phase 1 verified existing prerequisites without reinstalling the OS. Phase 2
+  prompted for new choices, reused the intended application path with a new
+  UUID, selected an owned mounted local filesystem and verified storage access
+  and download/library hardlinks as the media UID/GID.
+- Phase 3 prompted for new hidden administrator and everyday-viewer credentials,
+  enrolled all six enabled media services, wired them and passed verification.
+  No browser setup was required. The torrent-only fixture left SABnzbd off.
+- Existing media bytes, inode, mode and mtime matched before and after. An
+  unrelated custom isolation service and unrelated running container were
+  unchanged. No disk was formatted; the media fixture used an owned ext4 bind
+  mount. Old disposable container objects were removed only while preparing
+  this controlled wipe fixture, with appdata, images and volumes retained.
+- All 657 tests passed on Linux as root. The ordinary Linux test user passed
+  656 with one root-only skip. Windows passed 623 with 34 platform/runtime
+  skips. The release hygiene audit scanned 102 files with zero findings.
+
+The media acceptance used existing exact pinned images in the isolated cache.
+It does not prove registry download availability, a commercial VPN, provider
+credentials, physical disk health, throughput or the friend's machine.
+Phases 4-6 retain their earlier implementations and validation boundaries.
+Fresh mode never uninstalls a running stack: surviving application contents,
+Samurai containers including stopped ones, custom generated-name services or
+unknown metadata block the archival operation instead.
+
 ## Alpha 6 source-independent state and clean-restart recovery
 
 October 25, 2026. These checks ran in isolated disposable VM 102 with synthetic

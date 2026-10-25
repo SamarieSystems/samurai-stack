@@ -40,7 +40,7 @@ In the guest, open a root console (`su -` if needed), then run:
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.6 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.7 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
@@ -52,6 +52,42 @@ the checkout. Before storage is verified, a private host-specific draft also
 lives there. The launcher uses sudo when available, or explains how to return
 as root. Passwords go into hidden terminal prompts, not command arguments.
 
+### Start fresh after removing the old applications
+
+If the old application data, containers and source folder were intentionally
+removed, use the new release's fresh entry point inside the Linux VM:
+
+```sh
+./setup --fresh
+```
+
+With the verified portable release asset, the equivalent is:
+
+```sh
+python3 /path/to/samurai-setup.pyz --fresh
+```
+
+This opens a **new blank menu, phases 1-6**, without requiring or reusing an old
+`site.json`, credentials or setup cache. Select **1**, then continue in order.
+Phase 1 verifies working OS packages and tools; it does not reinstall them just
+to clear a saved status. Phase 2 asks for new configuration and a new empty
+media directory on the intended mount. Phase 3 requests fresh administrator
+and everyday viewer credentials through hidden prompts and performs account
+enrollment and application wiring automatically.
+
+Fresh cleanup may archive old private installer state and exact generated
+systemd units only after their application roots are absent or empty and both
+their projects and UUIDs have zero containers, including stopped ones. Existing
+appdata, custom services or uncertain ownership are not overwritten. Mounted
+filesystems, existing media and storage markers are retained; this is not a
+disk format, media move or application uninstaller.
+
+The new session is saved privately outside the source folder. Run normal
+`./setup`, or the portable command without `--fresh`, to resume it, even before
+phase 2 has saved configuration. After verified storage registration, its
+canonical configuration is used normally. **Running `--fresh` again starts
+another blank session.**
+
 ### Update an existing installation, including a source ZIP
 
 Keep the installation/deployment ID, application directories, storage marker,
@@ -62,7 +98,7 @@ require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.pyz` release asset. Obtain it from the
-[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6)
+[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
@@ -97,11 +133,11 @@ An older extracted ZIP does not acquire new behavior by itself; run the new
 source or the verified portable asset.
 
 For a Git checkout only, update using the account that owns it. For example,
-the alpha 6 source can be selected with:
+the alpha 7 source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.1.0-alpha.6
+git checkout v0.1.0-alpha.7
 ./setup
 ```
 

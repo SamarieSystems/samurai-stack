@@ -16,6 +16,12 @@ replacement for checking the actual machine and provider. Read
 [VALIDATION.md](VALIDATION.md) for the evidence and remaining limits.
 The individual plan/apply commands remain in [Advanced CLI](ADVANCED.md).
 
+For an intentional restart after all old application data and containers were
+removed, use the current release's `./setup --fresh`. It opens a blank phases
+1-6 menu without an old site or cache. Eligible stale installer state and exact
+generated services are privately archived; media and mounts stay in place.
+Normal `./setup` resumes that new session. See [the fresh-start instructions](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
+
 If Samurai is already installed and the immediate task is its hardlink setting,
 use the [existing-install repair](INSTALL.md#enable-hardlinks-on-an-existing-installation).
 Keep that VM, configuration and data tree; the new-install sequence below is not

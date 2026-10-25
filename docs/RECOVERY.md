@@ -1,5 +1,22 @@
 # Retry and recovery
 
+## An intentional application wipe
+
+Run `./setup --fresh` from the current release, or the verified portable
+`python3 /path/to/samurai-setup.pyz --fresh`, inside the Linux VM. This opens a
+new blank phases 1-6 session without an old site, credentials or cached progress.
+Normal setup resumes that new session; `--fresh` again starts another one.
+
+Eligible stale private installer state and exact generated systemd units are
+archived only after the old application roots are absent or empty and matching
+projects/UUIDs have zero containers, including stopped ones. Existing appdata
+and custom/uncertain service ownership block this cleanup. It does not format,
+move or adopt media, alter mounts or replace application data. Phase 2 selects
+a new empty data directory; phase 3 obtains new application credentials.
+
+Use the remaining resume procedures when preserving an existing installation.
+They are not the fresh-start procedure. See [fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
+
 ## Keep installation state separate from source
 
 Alpha 6 saves the verified private site at
@@ -39,9 +56,9 @@ If containers still exist, leave them in place while checking the original
 configuration and backups. Renaming the project does not recover its databases
 or free its occupied ports.
 
-After an intentional clean restart that removed all application containers and
-appdata, default discovery still refuses dangling service references without a
-trusted config. Supply the chosen new private site explicitly:
+For an existing chosen configuration that you intend to retain, default
+discovery refuses unresolved dangling service references. Supply that private
+site explicitly:
 
 ```sh
 ./setup --config /actual/path/to/site.json 3

@@ -10,6 +10,7 @@ case "${1:-}" in
       '1 Prepare Debian   2 Connect storage   3 Media applications' \
       '4 VPN and torrents 5 Management        6 Optional extras'
     printf '%s\n' 'Maintenance: ./setup --hardlinks checks/enables hardlinks without redeploying.'
+    printf '%s\n' 'New blank setup after an intentional app wipe: ./setup --fresh (keeps existing media).'
     printf '%s\n' 'Recovery: ./setup --recover reports existing containers, mounts and saved configuration paths.' \
       'Empty setup storage correction: ./setup --config site.json --choose-storage'
     exit 0 ;;

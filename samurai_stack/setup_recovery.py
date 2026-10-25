@@ -135,6 +135,12 @@ def resolve_configuration(config_path=None, *, input_fn=input, output_fn=print,
     if trusted:
         return _remember(_choose(trusted, input_fn, output_fn), registry_root, runner, output_fn)
 
+    from .setup_fresh import pending_fresh_configuration
+    fresh = pending_fresh_configuration(setup_root=setup_root)
+    if fresh is not None:
+        output_fn('Continuing the fresh setup session. Earlier source-folder configuration is not used.')
+        return fresh
+
     # Read a pre-registration draft without creating its directory. It remains
     # recoverable across checkout replacement even before storage is verified.
     draft = no_symlinks(Path(setup_root).absolute() / registry.host_identity() / "site.json")

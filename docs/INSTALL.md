@@ -5,8 +5,33 @@ For a new installation, follow [Guided setup](QUICKSTART.md) and the
 Linux guest. Physical Proxmox installation, disk selection, NAS export permissions
 and GPU passthrough remain separate decisions.
 
+## Start over after an intentional application wipe
+
+Use `./setup --fresh` from the current release, or run the verified portable
+asset as root inside the VM:
+
+```sh
+python3 /path/to/samurai-setup.pyz --fresh
+```
+
+This opens a new blank **phases 1-6** wizard. It does not need an old `site.json`
+and does not reuse old credentials or setup progress. Phase 1 verifies existing
+OS prerequisites, phase 2 asks for new storage/configuration, and phase 3 asks
+for new administrator/viewer credentials and wires the supported media apps.
+
+Eligible old installer configuration and exact generated services are
+archived privately only when the application roots are absent or empty and all
+matching containers are gone, including stopped ones. Existing appdata blocks
+takeover. Old progress is retained without reuse. Cleanup does not modify
+media, storage markers or mounted filesystems.
+Choose a new empty directory on the intended data mount during phase 2.
+
+Normal setup resumes this new session, including before phase 2. Running
+`--fresh` again deliberately creates another blank session. See
+[fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
+
 An existing Samurai installation keeps its installation identity, credentials
-and data paths. Alpha 6 saves verified configuration outside the source tree
+and data paths. Verified configuration is saved outside the source tree
 at `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`, with
 guided progress under `/var/lib/samurai-stack/setup`. A source-folder update
 does not reset that state. Older private site files remain compatible through
@@ -40,7 +65,7 @@ enough. Unknown state pauses for review, not an owner reset.
 
 The shortest update for an existing source ZIP uses the portable
 `samurai-setup.pyz` asset from the
-[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6).
+[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7).
 Verify it against the supplied `SHA256SUMS`, then run as root on the media VM:
 
 ```sh
@@ -72,28 +97,18 @@ or move media, and a configuration copy cannot restore deleted databases.
 See [Guided setup](QUICKSTART.md#update-an-existing-installation-including-a-source-zip)
 for the ZIP and Git update paths and the complete step-by-step workflow.
 
-## A leftover unit after a deliberate clean restart
+## Leftover services and existing-installation diagnostics
 
-Use `./setup --recover` to inspect saved paths and service/container ownership
-without changing them. If you intentionally removed all old containers and
-application state, keep the chosen new private site and resume it explicitly:
+After a complete intentional application wipe, use the fresh entry point above.
+No old site is required. It checks leftover generated services and stale private
+installer configuration before opening the new wizard.
 
-```sh
-./setup --config /actual/path/to/site.json 3
-```
-
-An obsolete unit with the same name is eligible for automatic retirement only
-if it is an unmodified generated unit for the same project/application root,
-with a different valid UUID, no systemd overrides, and no containers under
-either its project or old UUID. Stopped containers count. Setup stops and
-disables only that unit, rechecks container absence and archives its original
-file under `/var/lib/samurai-stack/retired-units` before installing the new
-unit. Sibling units and application/media directories are retained.
-
-This does not waive a collision with existing containers or restore old
-accounts. If the old appdata was deleted, recover it from a backup or complete
-new application enrollment. An old source ZIP or systemd unit has no copy of
-the application database.
+For an installation you intend to preserve, `./setup --recover` inspects saved
+paths and service/container ownership without changing them. Normal resume
+keeps the saved identity and credentials. An eligible obsolete conflicting unit
+can be archived during apply, but remaining containers, custom commands and
+systemd overrides block takeover. Configuration and service files cannot
+restore deleted application databases; those require their actual backups.
 
 For a first-run local storage choice that accidentally used the VM root
 filesystem, see the restricted
@@ -135,7 +150,7 @@ matching the running services.
 
 The standalone release asset, `samurai-hardlinks.pyz`, packages the same
 focused repair for machines using an older source ZIP. Obtain it from the
-[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6)
+[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7)
 and verify its supplied `SHA256SUMS` checksum.
 Its command interface is:
 

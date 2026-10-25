@@ -12,6 +12,12 @@ source for cross-host application addresses; it never assumes another VM's
 Docker DNS names work locally. The installer does not expose a WAN port,
 configure router forwarding, or create a public reverse proxy.
 
+For an intentional application wipe, `./setup --fresh` starts a new blank
+guided phases 1-6 session. It does not reuse old accounts or cached progress.
+Phase 3 asks for new administrator/viewer credentials in hidden terminal prompts
+and performs supported media account enrollment and wiring. Normal setup resumes
+the new session. Existing media is retained; this is not a media migration.
+
 ## Stage boundaries
 
 | Stage | Services | Automatic configuration | Operator input |
