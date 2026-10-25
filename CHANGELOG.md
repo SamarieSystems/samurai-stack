@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.0-alpha.6 - 2026-10-25
+
+- Save verified installation configuration and guided progress outside the
+  source checkout. Reuse trusted registered/runtime configuration before
+  opening a new wizard; preserve the original identity when updating a ZIP.
+  Keep explicit private `--config` paths compatible with older releases.
+- Add `./setup --recover` for read-only container, systemd, mount and saved-path
+  evidence. Explain project/UUID conflicts before application or image writes.
+  Refuse recreation when existing containers' appdata paths are missing,
+  replaced or unsafe. This is protection against further loss, not database
+  recovery after deletion.
+- Archive an obsolete generated unit only after proving both its Compose
+  project and old installation UUID have no containers, including stopped
+  ones. Stop and disable only that exact unit, repeat the absence checks and
+  preserve its original bytes in a private archive. Refuse custom commands,
+  drop-ins and stale loaded configuration. Clear restart limits only for the
+  intended generated unit.
+- Show suitable already-mounted local filesystems during storage selection.
+  Add `--choose-storage` for correcting an empty, unregistered local choice on
+  the VM root filesystem, with a private original-config backup. Do not repoint
+  existing applications, adopt another tree, move media or format a disk.
+  Require an explicit saved site for this correction and reject matching
+  services that are active, restarting or queued, even when Docker is empty.
+- Point missing-storage-marker failures to guided step 2 instead of exposing
+  the engine's different stage numbering without an actionable command.
+
 ## 0.1.0-alpha.5 - 2026-10-25
 
 - Complete guided media account enrollment for Jellyfin, Sonarr, Radarr,

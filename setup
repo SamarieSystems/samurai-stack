@@ -10,6 +10,8 @@ case "${1:-}" in
       '1 Prepare Debian   2 Connect storage   3 Media applications' \
       '4 VPN and torrents 5 Management        6 Optional extras'
     printf '%s\n' 'Maintenance: ./setup --hardlinks checks/enables hardlinks without redeploying.'
+    printf '%s\n' 'Recovery: ./setup --recover reports existing containers, mounts and saved configuration paths.' \
+      'Empty setup storage correction: ./setup --config site.json --choose-storage'
     exit 0 ;;
   --version)
     sed -n 's/^__version__ = "\([^"]*\)"/\1/p' samurai_stack/__init__.py

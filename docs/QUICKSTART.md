@@ -40,59 +40,68 @@ In the guest, open a root console (`su -` if needed), then run:
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.5 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.6 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
-Keep the complete source directory and its private `site.json`. Reopen the menu from
-this same directory whenever you need to continue. The launcher uses sudo
-when started by a normal account, or explains how to return as root if sudo
-is unavailable. Media account and provider passwords go into hidden terminal
-prompts, not command arguments.
+Keep the complete source directory to run its launchers, or use the portable
+release asset below. After storage verification, the authoritative site is
+saved at `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`.
+Guided progress lives under `/var/lib/samurai-stack/setup`, independently of
+the checkout. Before storage is verified, a private host-specific draft also
+lives there. The launcher uses sudo when available, or explains how to return
+as root. Passwords go into hidden terminal prompts, not command arguments.
 
 ### Update an existing installation, including a source ZIP
 
-Keep the existing `site.json`, installation/deployment ID, application
-directories, storage marker and private credentials. They identify the running
-installation. Do not run a new configuration wizard, generate a replacement ID
-or delete appdata to update the toolkit.
+Keep the installation/deployment ID, application directories, storage marker,
+private credentials and saved configuration. Updating source does not require
+deleting any of them. Default setup discovers trusted registered or managed
+runtime configuration before opening another wizard. Multiple candidates
+require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.pyz` release asset. Obtain it from the
-[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5)
-and verify its supplied `SHA256SUMS`. From a root console in the old source
-directory containing the correct private `site.json`, run:
+[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6)
+and verify its supplied `SHA256SUMS`. For an installation already registered
+outside its source folder, run from a root console in any directory:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --config site.json 3
+python3 /path/to/samurai-setup.pyz 3
 ```
 
 It contains the setup runtime, so the old extracted source can stay in place.
-Use the actual absolute `--config` path if you run it from another directory.
-The saved application and credential locations are reused.
+For a pre-registration release, explicitly name the original private site:
+
+```sh
+python3 /path/to/samurai-setup.pyz --config /absolute/path/to/old-source/site.json 3
+```
+
+The saved application and credential locations are reused. Storage is verified
+before a canonical recovery copy is saved. A config copy does not contain the
+application databases or secret files at those paths.
 
 A directory extracted from GitHub's source ZIP does not need Git. Extract the
 updated source into a **new directory beside the old one**, leaving the old
-directory intact. In the new directory, point setup at the existing private
-configuration, substituting its actual absolute path:
+directory intact. For a registered installation, run in the new directory:
 
 ```sh
 chmod +x setup stack
-./setup --config /absolute/path/to/old-source/site.json 3
+./setup 3
 ```
 
-Keep using that `--config` path on later runs. There is no need to copy secrets
-or application databases into the new source tree; their saved locations remain
-in the existing configuration. Do not extract a ZIP over appdata or a storage
-mount. Use the source for the release you intend to install; an older extracted
-ZIP does not acquire new setup behavior by itself.
+Use `./setup --config /absolute/path/to/old-source/site.json 3` when explicitly
+resuming a pre-registration site. There is no need to copy secrets or databases
+into the new checkout. Do not extract a ZIP over appdata or a storage mount.
+An older extracted ZIP does not acquire new behavior by itself; run the new
+source or the verified portable asset.
 
 For a Git checkout only, update using the account that owns it. For example,
-the alpha 5 source can be selected with:
+the alpha 6 source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.1.0-alpha.5
+git checkout v0.1.0-alpha.6
 ./setup
 ```
 
@@ -138,8 +147,13 @@ Select **2**. For a new installation, answer the questions about its name,
 host, features, media UID/GID and storage. A compact single guest uses the
 `all` role; leave acceleration on `cpu` for the first playback test.
 
-- **Local:** choose a dedicated new directory on an existing supported Linux
-  filesystem. This does not initialize or format another disk.
+- **Local:** select a suitable already-mounted Linux filesystem by its actual
+  mountpoint, source and filesystem, then choose a new empty child directory.
+  A disk mounted at `/mnt/media` can use `/mnt/media/samurai`; selecting an
+  unrelated `/srv` path would instead consume that path's backing filesystem.
+  Formatting, partitioning and mounting a new physical disk remain manual.
+  The alternative local-directory option includes the VM's OS filesystem, so
+  choose it deliberately rather than assuming it means the large media disk.
 - **NFS:** create the dedicated export and identity rules in the NAS interface
   first. Enter its server/export and the guest mountpoint. Review a proposed
   new persistent mount before accepting it. An unrelated existing mount is refused.
@@ -153,6 +167,29 @@ Existing installations reuse `site.json` and their storage marker. Keep the
 same installation identity when returning. For separate guests sharing one
 tree, follow [the multi-VM instructions](ADVANCED.md#several-vms-one-installation)
 before initializing a second configuration.
+
+### Correct an unused storage choice
+
+If a first-run local configuration selected the VM's root filesystem, this
+action can choose a mounted local data filesystem before applications are in use:
+
+```sh
+./setup --config /absolute/path/to/site.json --choose-storage
+```
+
+It requires an **unregistered** local setup whose saved backing mount is `/`,
+no application state, no containers for its installation or projects, and an
+absent or empty managed data tree. It preserves the original configuration
+privately under the persistent setup directory. The UUID, application root,
+name and feature selections stay the same. After reviewing a new empty child
+directory, the action runs normal storage preparation and verification. The
+disk must already be mounted; this correction does not edit mounts or fstab.
+
+This does not move media, change an existing registered installation's storage
+identity, adopt another marker or repoint running applications. Existing media
+at `/mnt/media/samurai` stays where it is; a directory with files cannot be
+silently selected as a new tree. Use a separate migration/restore procedure
+when there is data to keep.
 
 ## 3. Set up media
 
@@ -306,8 +343,18 @@ checks and cannot waive a failed API, mount or provider connection.
 ## Pause, resume and hand over
 
 Leave the installer when needed, then rerun `./setup` or the relevant step.
-Keep `site.json`, appdata, image locks, storage markers and secrets. A failure
-preserves partial state; deleting those files is not a retry strategy.
+Keep canonical configuration/progress, appdata, image locks, storage markers
+and secrets. A failure preserves partial state; deleting those files is not a
+retry strategy. `./setup --recover` reports current paths, ownership labels,
+mounts and leftover service references without changing them.
+
+After a deliberate clean restart that removed all old application containers
+and appdata, an older source-tree `site.json` can be supplied explicitly with
+`--config`. A matching obsolete generated unit is archived only after repeated
+checks prove its project and old UUID have no containers. Default discovery
+still refuses dangling service references with no trusted saved configuration.
+Deleted application databases and passwords need a real backup to be restored;
+the leftover service file cannot recover them. See [Recovery](RECOVERY.md).
 
 Before handover, complete one authorized download, confirm its path/size,
 import and play it, test VPN failure/recovery and reboot the guest. Record

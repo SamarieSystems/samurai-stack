@@ -379,24 +379,21 @@ def ensure_site_config(config_path="site.json", *, input_fn=input, output_fn=pri
     if mode == "nfs":
         found = _choose_nfs(input_fn, output_fn, runner, fstab_path)
         default_data = str(PurePosixPath(found["target"]) / "samurai")
+        while True:
+            data = _new_directory(input_fn, output_fn, "New dedicated downloads/library directory", default_data)
+            actual = storage.mount_identity(data, runner)
+            if str(data) == found["target"] or any(actual[key] != found[key] for key in ("target", "source", "fstype")):
+                output_fn("That directory is outside the selected NAS mount. Choose an empty child of " + found["target"] + ".")
+                continue
+            if "rw" not in actual["options"].split(","):
+                output_fn("That storage is read-only. Select writable dedicated storage.")
+                continue
+            break
     else:
-        found = None
-        default_data = "/srv/samurai-data"
-    while True:
-        data = _new_directory(input_fn, output_fn, "New dedicated downloads/library directory", default_data)
-        actual = storage.mount_identity(data, runner)
-        if mode == "nfs" and (str(data) == found["target"] or any(actual[key] != found[key] for key in ("target", "source", "fstype"))):
-            output_fn("That directory is outside the selected NAS mount. Choose an empty child of " + found["target"] + ".")
-            continue
-        if mode == "local" and actual["fstype"] not in LOCAL_FILESYSTEMS:
-            output_fn("Local data requires ext4, XFS, Btrfs or ZFS. Choose compatible local storage or rerun for NFS; no filesystem was changed.")
-            continue
-        if "rw" not in actual["options"].split(","):
-            output_fn("That storage is read-only. Select writable dedicated storage.")
-            continue
-        config["storage"] = {"mode": mode, "data_root": str(data), "allow_existing_contents": False,
-                             "expected_mount": {key: actual[key] for key in ("target", "source", "fstype")}}
-        break
+        from .setup_local_storage import choose_local_directory
+        data, actual = choose_local_directory(input_fn=input_fn, output_fn=output_fn, runner=runner)
+    config["storage"] = {"mode": mode, "data_root": str(data), "allow_existing_contents": False,
+                         "expected_mount": {key: actual[key] for key in ("target", "source", "fstype")}}
     output_fn("Media files use numeric Linux IDs. Default 1000:1000 usually matches the first normal user.")
     output_fn("For NFS, the NAS must allow these IDs on this dedicated export. Setup never changes NAS ACLs, enables root access or recursively changes existing file permissions.")
     config["puid"] = _media_id(input_fn, output_fn, "Media user ID (UID)")

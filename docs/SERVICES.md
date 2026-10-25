@@ -72,8 +72,12 @@ because a stale empty mountpoint can already exist.
 Guided menu step 3 handles media account enrollment and wiring together:
 
 ```sh
-./setup --config site.json 3
+./setup 3
 ```
+
+For an older unregistered installation, add its actual private
+`--config /path/to/site.json`. Current guided installs reuse their host-bound
+configuration outside the source checkout.
 
 1. Enter one application administrator login and a separate everyday
    Jellyfin/Seerr viewer login in the terminal. Password input is hidden. The

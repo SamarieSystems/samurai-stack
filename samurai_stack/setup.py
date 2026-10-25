@@ -22,6 +22,8 @@ from . import __version__, catalog, engine
 from .safety import SafetyError, atomic_write, load_config, no_symlinks, private_read, write_json
 
 UNIT_ROOT = Path('/etc/systemd/system')
+STATE_ROOT = Path('/var/lib/samurai-stack/setup/progress')
+REGISTRY_ROOT = Path('/var/lib/samurai-stack/installations')
 
 STEPS = {1: 'Prepare Debian', 2: 'Connect storage', 3: 'Media applications',
          4: 'VPN and torrents', 5: 'Management', 6: 'Optional extras'}
@@ -34,13 +36,77 @@ APP_NAMES = {'jellyfin': 'Jellyfin', 'seerr': 'Seerr', 'sonarr': 'Sonarr',
 
 
 class GuidedSetup:
-    def __init__(self, repo, config_path, *, input_fn=input, output_fn=print, secret_fn=None):
+    def __init__(self, repo, config_path, *, input_fn=input, output_fn=print, secret_fn=None,
+                 state_base=None, registry_root=None):
         self.repo = Path(repo)
         self.config_path = no_symlinks(Path(config_path).absolute())
         self.read, self.say = input_fn, output_fn
         self.secret_fn = secret_fn
+        self.state_base = no_symlinks(Path(state_base) if state_base is not None else STATE_ROOT)
+        self.registry_root = no_symlinks(Path(registry_root) if registry_root is not None else REGISTRY_ROOT)
+        self._prior_state_roots = []
         identity = hashlib.sha256(str(self.config_path).encode()).hexdigest()[:16]
-        self.state_root = no_symlinks(self.config_path.parent / '.setup-state' / identity)
+        legacy = no_symlinks(self.config_path.parent / '.setup-state' / identity)
+        if legacy.exists():
+            self._prior_state_roots.append(legacy)
+        self.state_root = no_symlinks(self.state_base / ('draft-' + identity))
+        self._refresh_state_root()
+
+    def _refresh_state_root(self):
+        if self.config_path.exists():
+            # Progress is advisory. Full runtime configuration validation stays
+            # in config(); here only a bounded private installation ID is read.
+            try:
+                c = json.loads(private_read(self.config_path))
+                identifier = str(uuid.UUID(c['deployment_id']))
+                if c['deployment_id'] != identifier:
+                    raise ValueError()
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise SafetyError('The saved site has no valid installation identity. Keep it and run ./setup --recover.') from None
+            current = no_symlinks(self.state_base / identifier)
+            if current != self.state_root:
+                self._prior_state_roots.append(self.state_root)
+                self.state_root = current
+            self._legacy_source_progress(c)
+
+    def _legacy_source_progress(self, canonical):
+        """Read advisory pre-registry progress only for the same installation."""
+        from . import installation_registry as registry
+        # A portable bundle runs from its extracted directory while the caller
+        # can remain in the original source checkout.
+        sources = dict.fromkeys(((self.repo / 'site.json').absolute(), Path.cwd() / 'site.json'))
+        for candidate in sources:
+            try:
+                source = no_symlinks(candidate)
+                if source == self.config_path or not source.exists() or source.stat().st_size > registry.MAX_BYTES:
+                    continue
+                registry._owner(source.stat())
+                previous = json.loads(private_read(source))
+                from .safety import validate_config
+                validate_config(previous)
+                if registry._identity(previous) != registry._identity(canonical):
+                    continue
+                identifier = hashlib.sha256(str(source).encode()).hexdigest()[:16]
+                legacy = no_symlinks(source.parent / '.setup-state' / identifier)
+                if legacy.is_dir() and legacy not in self._prior_state_roots:
+                    self._prior_state_roots.append(legacy)
+            except (SafetyError, OSError, ValueError, KeyError, TypeError, AttributeError):
+                # An unrelated, unsafe or damaged checkout never overrides the
+                # canonical site or blocks its valid current progress.
+                continue
+
+    def _remember_configuration(self, c):
+        from .installation_registry import remember_verified
+        saved = remember_verified(c, registry_root=self.registry_root)
+        self.say('Installation configuration saved outside the source folder: ' + str(saved))
+        return saved
+
+    def _save_configuration(self, c):
+        # The registry validates current storage and archives the prior version
+        # before replacement. Never overwrite its authoritative site first.
+        canonical = self._remember_configuration(c)
+        if self.config_path != Path(canonical):
+            write_json(self.config_path, c, replace=self.config_path.exists())
 
     def yes(self, question, default=False):
         while True:
@@ -54,6 +120,7 @@ class GuidedSetup:
             self.say('Enter y or n. Nothing has changed.')
 
     def _state_dir(self):
+        self._refresh_state_root()
         no_symlinks(self.state_root)
         self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         if os.name == 'posix' and self.state_root.stat().st_mode & 0o077:
@@ -61,13 +128,15 @@ class GuidedSetup:
         return self.state_root
 
     def state(self):
-        path = self.state_root / 'progress.json'
-        if not path.exists():
-            return {}
-        result = json.loads(private_read(path))
-        if not isinstance(result, dict):
-            raise SafetyError('Saved setup progress is invalid. Keep it for diagnosis; application data was not changed.')
-        return result
+        self._refresh_state_root()
+        for root in [self.state_root, *reversed(self._prior_state_roots)]:
+            path = root / 'progress.json'
+            if path.exists():
+                result = json.loads(private_read(path))
+                if not isinstance(result, dict):
+                    raise SafetyError('Saved setup progress is invalid. Keep it for diagnosis; application data was not changed.')
+                return result
+        return {}
 
     def mark(self, number, status):
         state = self.state()
@@ -122,7 +191,10 @@ class GuidedSetup:
             # vendor traceback, raw JSON, configuration or private credentials.
             diagnostic = stderr.read_text(errors='replace')
             line = next((s[7:] for s in diagnostic.splitlines() if s.startswith('ERROR: ')), None)
-            self.say('Paused: ' + (line or 'This operation did not complete.'))
+            if result.get('error_code') == 'EXISTING_INSTALLATION_IDENTITY_CONFLICT' and isinstance(result.get('details'), dict):
+                self.say('Paused: ' + engine.format_project_collision(result['details']))
+            else:
+                self.say('Paused: ' + (line or 'This operation did not complete.'))
             self.say('Private diagnostic: ' + str(stderr))
             self.say('Your existing files were kept. Fix the cause, then select this step again.')
         return code, result
@@ -133,14 +205,17 @@ class GuidedSetup:
 
     def install(self, c, stage):
         if stage:
+            engine.check_docker()
+            engine.check_container_ownership(c, stage)
             try:
                 engine.preflight(c, stage)
-                engine.check_container_ownership(c, stage)
                 engine.service_health(c, stage)
                 if (json.loads(engine.compose_path(c, stage).read_text()) == engine.recipe(c, stage)
                         and self.guarded_runtime(c, stage)):
                     self.say('The existing applications are already running. Continuing with their setup.')
                     return True
+            except engine.ProjectCollision:
+                raise
             except (SafetyError, OSError, ValueError):
                 pass
         attempt = self._state_dir() / ('review-' + uuid.uuid4().hex)
@@ -164,9 +239,12 @@ class GuidedSetup:
             return False
         # The same reviewed hash/host/config validation remains inside the
         # engine. The operator approves the readable summary, not hash copying.
-        code, _ = self.invoke(['apply', str(stage), '--plan', str(path),
+        code, result = self.invoke(['apply', str(stage), '--plan', str(path),
                                '--accept-plan', document['review_hash']],
                               'Applying this step. Image downloads can take several minutes...')
+        for action in result.get('recovery_actions', []):
+            if isinstance(action, dict) and isinstance(action.get('archive_path'), str):
+                self.say('Archived the obsolete service definition: ' + action['archive_path'])
         return code == 0
 
     def guarded_runtime(self, c, stage):
@@ -307,13 +385,25 @@ class GuidedSetup:
     def storage(self):
         from .setup_storage import ensure_site_config
         c = ensure_site_config(self.config_path, input_fn=self.read, output_fn=self.say)
+        # A replacement checkout must not prepare another storage identity for
+        # the same still-existing Docker project, even before media is applied.
+        engine.check_docker()
+        engine.check_container_ownership(c, 2)
         if not self.install(c, 0):
             return False
         code, proof = self.invoke(['verify', '0'], 'Checking the mounted storage and media identity...')
         if code == 0 and proof.get('status') == 'verified':
+            self._remember_configuration(c)
             self.say('Storage verified. Downloads and libraries use the same data tree.')
             return True
         return False
+
+    def choose_storage(self):
+        from .setup_local_storage import choose_replacement
+        c = self.config()
+        choose_replacement(c, self.config_path, input_fn=self.read, output_fn=self.say,
+                           registry_root=self.registry_root)
+        return self.storage()
 
     def account_password(self, label):
         while True:
@@ -467,6 +557,7 @@ class GuidedSetup:
         c = self.config()
         if not self.install(c, 2):
             return False
+        self._remember_configuration(c)
         enrolled = self.enroll_accounts(c)
         if enrolled is None:
             return False
@@ -590,7 +681,7 @@ class GuidedSetup:
         validate_config(updated)
         backup = self._state_dir() / ('site-before-vpn-' + uuid.uuid4().hex + '.json')
         write_json(backup, c)
-        write_json(self.config_path, updated, replace=True)
+        self._save_configuration(updated)
         write_json(path, {'deployment_id': c['deployment_id'], 'vpn': vpn}, replace=path.exists())
         self.say('VPN selection saved. The private credential is entered next.')
         return updated
@@ -629,7 +720,7 @@ class GuidedSetup:
             c['features'][feature] = True
             backup = self._state_dir() / ('site-before-' + uuid.uuid4().hex + '.json')
             write_json(backup, load_config(self.config_path))
-            write_json(self.config_path, c, replace=True)
+            self._save_configuration(c)
         if stage == 6:
             for name in ('soulseek_username', 'soulseek_password'):
                 if not self.secret(c, name, 'Enter your own ' + name + '.'):
@@ -669,6 +760,7 @@ class GuidedSetup:
                 status = state.get(str(number), {}).get('status', 'not started')
                 self.say('  ' + str(number) + '. ' + label + ' [' + status + ']')
             self.say('  h. Check/enable hardlinks in existing Sonarr and Radarr')
+            self.say('  r. Show read-only installation recovery inventory')
             self.say('Saved statuses show the last setup check, not live service monitoring.')
             default = next((i for i in range(1, 6) if state.get(str(i), {}).get('status') != 'verified'), 0)
             value = self.read('Choose a step, q to quit' + (' [' + str(default) + ']' if default else '') + ': ').strip().lower()
@@ -681,10 +773,14 @@ class GuidedSetup:
                 except (SafetyError, OSError, ValueError, RuntimeError) as exc:
                     self.say('Hardlink check paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
                 continue
+            if value in {'r', 'recover', 'recovery'}:
+                from .recovery import inventory
+                self.say(json.dumps(inventory(), indent=2, sort_keys=True))
+                continue
             if not value:
                 value = str(default)
             if value not in {'1', '2', '3', '4', '5', '6'}:
-                self.say('Choose a number from 1 to 6, h for hardlinks, or q.')
+                self.say('Choose a number from 1 to 6, h for hardlinks, r for recovery, or q.')
                 continue
             try:
                 self.step(int(value))
@@ -697,26 +793,48 @@ class GuidedSetup:
         try:
             self.mark(number, 'paused')
         except (SafetyError, OSError, ValueError, RuntimeError):
-            self.say('Saved progress could not be updated. Keep the original site file and .setup-state directory for review; no old progress file was removed.')
+            self.say('Saved progress could not be updated. Keep the original site file and private setup state for review; no old progress file was removed.')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Guided setup. Plans, credentials and progress are handled for you.')
     parser.add_argument('step', nargs='?', type=int, choices=range(1, 7))
-    parser.add_argument('--config', default='site.json', help='Advanced: existing private site file')
+    parser.add_argument('--config', default=None, help='Advanced: explicit existing private site file; otherwise recover the host configuration')
+    parser.add_argument('--recover', action='store_true', help='Read-only container, mount and configuration recovery inventory')
+    parser.add_argument('--choose-storage', action='store_true', help='Correct an empty, unregistered installation storage choice without deleting media')
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
     args = parser.parse_args(argv)
+    if args.recover and (args.step or args.hardlinks or args.choose_storage):
+        parser.error('Choose --recover alone; it never runs an installation step')
+    if args.choose_storage and (args.step or args.hardlinks):
+        parser.error('Choose --choose-storage alone, then resume the numbered step')
+    if args.choose_storage and args.config is None:
+        parser.error('--choose-storage requires --config /path/to/site.json so automatic recovery cannot register the old storage choice first')
     if args.hardlinks and args.step:
         parser.error('Choose a numbered setup step or --hardlinks, not both')
     if not sys.platform.startswith('linux') or os.geteuid() != 0 or Path('/etc/pve').exists():
         print('Run ./setup as administrator inside the intended Linux VM, not on the Proxmox host.', file=sys.stderr)
         return 1
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
+    if not args.recover and (not sys.stdin.isatty() or not sys.stdout.isatty()):
         print('Use an interactive terminal for guided setup. No changes were made.', file=sys.stderr)
         return 1
     try:
-        ui = GuidedSetup(Path(__file__).resolve().parent.parent, args.config)
+        if args.recover:
+            from .recovery import inventory
+            print(json.dumps(inventory(), indent=2, sort_keys=True))
+            return 0
+        from .setup_recovery import resolve_configuration
+        if args.step == 1 and args.config is None:
+            # Repairing Docker/host prerequisites must remain possible while
+            # Docker is unavailable. No deployment UUID or site is created.
+            from .installation_registry import draft_directory
+            config_path = draft_directory() / 'site.json'
+        else:
+            config_path = resolve_configuration(args.config)
+        ui = GuidedSetup(Path(__file__).resolve().parent.parent, config_path)
+        if args.choose_storage:
+            return 0 if ui.choose_storage() else 2
         if args.hardlinks:
             return 0 if ui.hardlinks() else 2
         if args.step:
@@ -732,7 +850,8 @@ def main(argv=None):
     except (SafetyError, OSError, ValueError, RuntimeError) as exc:
         print('Paused: ' + (str(exc) if isinstance(exc, SafetyError) else
             'A local prerequisite or saved state could not be read or updated.'), file=sys.stderr)
-        print('Keep the original site file and private .setup-state directory for review, then rerun the same setup step.', file=sys.stderr)
+        print('Run ./setup --recover for a read-only inventory. Keep configuration and appdata; do not delete directories or rename the project to bypass a collision.', file=sys.stderr)
+        print('Host preparation can be run independently with ./setup 1.', file=sys.stderr)
         return 1
 
 

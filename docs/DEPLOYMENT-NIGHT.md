@@ -114,8 +114,9 @@ port or Docker lifecycle action. The new-VM route avoids those collisions.
 
 ## Existing Samurai installation: hardlink repair
 
-On its media VM, from the directory containing the existing `site.json`, run
-`./setup --hardlinks`. It checks Sonarr and Radarr, asks before enabling a disabled
+On its media VM, from the current release source, run `./setup --hardlinks`.
+For an older unregistered site, pass its actual private `--config` path.
+It checks Sonarr and Radarr, asks before enabling a disabled
 flag, then verifies API readback. The advanced equivalent is:
 
 ```sh
@@ -127,12 +128,12 @@ sudo ./stack --config site.json hardlinks
 The flag is `copyUsingHardlinks`, shown in both apps as **Use Hardlinks instead
 of Copy**. This action preserves other settings and existing media. It does not
 restart or redeploy services, scan/import files, re-enroll accounts, alter VPN
-policy or migrate storage. A standalone `samurai-hardlinks.pyz` repair asset is
-planned for older ZIP installations; see [INSTALL.md](INSTALL.md) for its intended
-interface and publication/checksum boundary.
+policy or migrate storage. The standalone `samurai-hardlinks.pyz` release asset
+supports older ZIP installations too; see [INSTALL.md](INSTALL.md) for its
+interface and checksum checks.
 
 Keep the actual configured path. `/opt/samurai` is this project's conventional
-local app-state default. `/srv/samurai-data` is the guided local-data default;
+local app-state default. `/srv/samurai-data` is the explicit local-directory fallback;
 an installation using a mounted `/mnt/media/samurai` tree should keep that tree.
 Starr and download clients use the common `/data` container layout under either
 host prefix. The [path explanation](INSTALL.md#what-the-paths-mean) covers why
@@ -176,6 +177,20 @@ photos/music. Use `./setup 3` to resume media enrollment, for example. It handle
 the private plans and asks for confirmation without copied hashes or JSON edits.
 New NFS guest mounts include a reviewed persistent entry and a private fstab
 backup; NAS export/user/ACL setup still happens in the vendor interface.
+
+After storage passes, the private site is saved outside the source folder at
+`/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`. Progress also
+lives outside the checkout under `/var/lib/samurai-stack/setup`. A later ZIP
+update or portable installer can discover that installation without `--config`.
+For an older unregistered site, pass its actual private path explicitly and
+keep appdata/secrets in place. Configuration copies do not restore databases.
+
+Local storage selection lists suitable already-mounted Linux filesystems.
+Choose the actual data mount and a new empty child; a `/srv` path on `/` uses
+the VM OS disk even when a separate large disk exists. Mounting/partitioning
+that separate disk remains manual. An unused root-filesystem choice has a
+restricted [storage correction](QUICKSTART.md#correct-an-unused-storage-choice),
+which does not migrate or adopt an occupied media tree.
 
 ## Advanced order of operations
 

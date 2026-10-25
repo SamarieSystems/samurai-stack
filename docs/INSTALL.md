@@ -5,9 +5,12 @@ For a new installation, follow [Guided setup](QUICKSTART.md) and the
 Linux guest. Physical Proxmox installation, disk selection, NAS export permissions
 and GPU passthrough remain separate decisions.
 
-An existing Samurai installation keeps its current `site.json`, installation
-identity, credentials and data paths. Use the focused action below when the task
-is to enable hardlinks in already-running Sonarr and Radarr.
+An existing Samurai installation keeps its installation identity, credentials
+and data paths. Alpha 6 saves verified configuration outside the source tree
+at `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`, with
+guided progress under `/var/lib/samurai-stack/setup`. A source-folder update
+does not reset that state. Older private site files remain compatible through
+`--config`. Use the focused action below to enable hardlinks in running apps.
 
 ## Media setup and an existing installation
 
@@ -37,41 +40,70 @@ enough. Unknown state pauses for review, not an owner reset.
 
 The shortest update for an existing source ZIP uses the portable
 `samurai-setup.pyz` asset from the
-[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5).
-Verify it against the supplied `SHA256SUMS`, open a root console on the media VM,
-and run from the directory containing the existing private `site.json`:
+[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6).
+Verify it against the supplied `SHA256SUMS`, then run as root on the media VM:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --config site.json 3
+python3 /path/to/samurai-setup.pyz 3
 ```
 
-No Git installation or source-tree replacement is required. The portable
-installer uses the existing saved paths and credentials. If you are in another
-directory, supply the actual absolute `--config` path instead. Media wiring
-also enables only the two deployment-named Jellyfin movie/TV libraries in Seerr,
+No Git installation or source-tree replacement is required. Default discovery
+uses the trusted saved installation. For an older release not yet registered,
+use `python3 /path/to/samurai-setup.pyz --config /actual/old/site.json 3`.
+Its existing saved paths and credentials are reused. Media wiring also enables
+only the two deployment-named Jellyfin movie/TV libraries in Seerr,
 after path/ID verification, while retaining unrelated selections. It does not
 start library scans or request media.
 
-To resume with updated source, preserve the existing private `site.json`, its
-deployment ID, appdata, storage marker and secrets. A source ZIP installation
-does not need Git: extract the new source beside the old directory and run
-from the new source directory, using the actual old configuration path:
+To resume with updated source, keep existing configuration, deployment ID,
+appdata, storage marker and secrets. A source ZIP installation does not need
+Git: extract the new source beside the old directory and run there:
 
 ```sh
 chmod +x setup stack
-./setup --config /absolute/path/to/old-source/site.json 3
+./setup 3
 ```
 
-Keep the old directory and configuration. Continue passing the same `--config`
-path on later runs; do not create a new deployment identity or copy appdata into
-the source tree. Updating source does not rotate credentials or move media.
+If the private site has not been registered yet, explicitly pass
+`--config /absolute/path/to/old-source/site.json`. The canonical copy is saved
+only after live storage verification. Do not create a new deployment identity
+or copy appdata into the source tree. Source updates do not rotate credentials
+or move media, and a configuration copy cannot restore deleted databases.
 See [Guided setup](QUICKSTART.md#update-an-existing-installation-including-a-source-zip)
 for the ZIP and Git update paths and the complete step-by-step workflow.
 
+## A leftover unit after a deliberate clean restart
+
+Use `./setup --recover` to inspect saved paths and service/container ownership
+without changing them. If you intentionally removed all old containers and
+application state, keep the chosen new private site and resume it explicitly:
+
+```sh
+./setup --config /actual/path/to/site.json 3
+```
+
+An obsolete unit with the same name is eligible for automatic retirement only
+if it is an unmodified generated unit for the same project/application root,
+with a different valid UUID, no systemd overrides, and no containers under
+either its project or old UUID. Stopped containers count. Setup stops and
+disables only that unit, rechecks container absence and archives its original
+file under `/var/lib/samurai-stack/retired-units` before installing the new
+unit. Sibling units and application/media directories are retained.
+
+This does not waive a collision with existing containers or restore old
+accounts. If the old appdata was deleted, recover it from a backup or complete
+new application enrollment. An old source ZIP or systemd unit has no copy of
+the application database.
+
+For a first-run local storage choice that accidentally used the VM root
+filesystem, see the restricted
+[`--choose-storage` correction](QUICKSTART.md#correct-an-unused-storage-choice).
+It does not migrate a registered installation or reuse an occupied media tree.
+
 ## Enable hardlinks on an existing installation
 
-Open a terminal on the existing **media VM**, enter the source directory that
-contains its saved `site.json`, and run:
+Open a terminal on the existing **media VM**, enter the current release source
+directory and run:
 
 ```sh
 ./setup --hardlinks
@@ -103,7 +135,7 @@ matching the running services.
 
 The standalone release asset, `samurai-hardlinks.pyz`, packages the same
 focused repair for machines using an older source ZIP. Obtain it from the
-[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5)
+[alpha 6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6)
 and verify its supplied `SHA256SUMS` checksum.
 Its command interface is:
 
@@ -137,7 +169,7 @@ clients. The library and download paths are children of that same tree:
 | Host path | Purpose |
 | --- | --- |
 | `/opt/samurai` | Conventional default for this toolkit's local application state, configuration and databases. A different supported, dedicated local directory can be selected during initial setup. This is a project convention, not a claim that the applications require that prefix. |
-| `/srv/samurai-data` | Guided default for a new local media tree on an existing supported Linux filesystem. |
+| `/srv/samurai-data` | Fallback example for the explicit local-directory/OS-filesystem option. It is not an automatic selection of a separate media disk. |
 | `/mnt/media/samurai` | Example of a dedicated child on an existing reviewed disk or NAS mount at `/mnt/media`. An installation already using this path should retain it. |
 
 Changing `/mnt/media/samurai` to `/srv/samurai-data` is not a hardlink repair.

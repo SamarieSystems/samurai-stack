@@ -74,7 +74,7 @@ def verify(c, runner=run):
     try:
         document = json.loads(no_symlinks(path).read_text())
     except (OSError, ValueError) as exc:
-        raise SafetyError("Storage marker missing; complete stage 0 before application deployment") from exc
+        raise SafetyError("Storage marker missing; run ./setup 2 (Connect storage) before application deployment") from exc
     if document.get("deployment_id") != c["deployment_id"] or document.get("expected_mount") != c["storage"]["expected_mount"]:
         raise SafetyError("Storage marker belongs to a different deployment or mount")
     for relative in DIRECTORIES:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import copy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,6 +14,7 @@ import shutil
 import stat
 import sys
 import time
+import uuid
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -24,6 +26,36 @@ from .safety import SafetyError, atomic_write, contained, digest, no_symlinks, p
 
 ROLES = {2: "media", 3: "torrent", 4: "management", 5: "photos", 6: "music"}
 STAGES = {0: "storage", 2: "media", 3: "torrent", 4: "management", 5: "photos", 6: "music"}
+
+
+class ProjectCollision(SafetyError):
+    """Read-only evidence of an existing Docker project owned elsewhere."""
+    def __init__(self, details):
+        self.details = copy.deepcopy(details)
+        super().__init__(format_project_collision(self.details))
+
+
+def format_project_collision(details):
+    """Readable selected inventory, with terminal control characters escaped."""
+    quoted = lambda value: json.dumps(value, ensure_ascii=True)
+    lines = ["Compose project " + quoted(details["project"]) + " already contains containers with different deployment or stage ownership.",
+             "Requested deployment UUID: " + details["requested_deployment_id"]]
+    for row in details["containers"]:
+        lines.append("  " + quoted(row["name"]) + ": " + row["status"]
+                     + ", project " + quoted(row["project"]) + ", stage " + row["stage"]
+                     + ", deployment UUID " + row["deployment_id"])
+        for mount in row["mounts"]:
+            kind = "Appdata" if mount["appdata"] else "Mount"
+            existence = "present" if mount["source_exists"] is True else "missing" if mount["source_exists"] is False else "unknown"
+            lines.append("    " + kind + " " + quoted(mount["source"]) + " -> "
+                         + quoted(mount["destination"]) + ": host source " + existence)
+    lines.extend(["Existing containers were not changed or adopted.",
+        "Locate the original site configuration and appdata backups for the existing deployment. If the installation folder is missing, run ./setup --recover for read-only recovery inventory before continuing.",
+        "Choosing a different project name does not recover missing appdata or release the ports these containers already use."])
+    if any(mount["appdata"] and mount["source_exists"] is False
+           for row in details["containers"] for mount in row["mounts"]):
+        lines.append("Some host appdata sources are missing. Leave running containers in place; review recovery before stopping or recreating them.")
+    return "\n".join(lines)
 
 
 def now():
@@ -438,15 +470,130 @@ def service_health(c, stage, runner=run):
     return {name: {k: found[name].get(k) for k in ["State", "Health"]} for name in sorted(expected)}
 
 
-def check_container_ownership(c, stage, runner=run):
+_PROJECT_INSPECT = ('{"id":{{json .Id}},"name":{{json .Name}},"status":{{json .State.Status}},'
+    '"pid":{{json .State.Pid}},'
+    '"project":{{json (index .Config.Labels "com.docker.compose.project")}},'
+    '"deployment_id":{{json (index .Config.Labels "systems.samarie.deployment")}},'
+    '"stage":{{json (index .Config.Labels "systems.samarie.stage")}},'
+    '"service":{{json (index .Config.Labels "com.docker.compose.service")}},'
+    '"mounts":[{{range $i, $m := .Mounts}}{{if $i}},{{end}}'
+    '{"type":{{json $m.Type}},"source":{{json $m.Source}},"destination":{{json $m.Destination}}}{{end}}]}')
+
+
+def _collision_name(value):
+    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,255}", value.lstrip("/")):
+        return value.lstrip("/")
+    return "[unknown]"
+
+
+def _collision_uuid(value):
+    try:
+        return str(uuid.UUID(value)) if isinstance(value, str) else "[unlabelled]"
+    except ValueError:
+        return "[unrecognized]"
+
+
+def _collision_path(value):
+    if (not isinstance(value, str) or not value.startswith("/") or len(value) > 4096
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+            or re.search(r"[a-z][a-z0-9+.-]*://", value, re.I)):
+        return None
+    return value
+
+
+def _collision_choice(value, choices):
+    return value if isinstance(value, str) and value in choices else "unknown"
+
+
+def _collision_container(row):
+    mounts = row.get("mounts")
+    if not isinstance(mounts, list) or len(mounts) > 256 or any(not isinstance(item, dict) for item in mounts):
+        raise SafetyError("Existing Docker project has an unsupported mount inventory; no container was changed")
+    selected = []
+    for mount in mounts:
+        source, destination = _collision_path(mount.get("source")), _collision_path(mount.get("destination"))
+        exists = None
+        if source is not None:
+            try:
+                exists = Path(source).exists()
+            except OSError:
+                pass
+        selected.append({"type": _collision_choice(mount.get("type"), {"bind", "volume", "tmpfs"}),
+                         "source": source or "[unavailable]", "destination": destination or "[unavailable]",
+                         "source_exists": exists, "appdata": destination in {"/config", "/app/config"}})
+    return {"id": row["id"], "name": _collision_name(row.get("name")),
+            "status": _collision_choice(row.get("status"), {"created", "restarting", "running", "removing", "paused", "exited", "dead"}),
+            "project": _collision_name(row.get("project")), "deployment_id": _collision_uuid(row.get("deployment_id")),
+            "stage": _collision_choice(row.get("stage"), {str(s) for s in STAGES}),
+            "service": _collision_name(row.get("service")), "mounts": selected}
+
+
+def _check_existing_appdata(rows):
+    """Do not recreate a container over missing or replaced persistent config."""
+    message = ("Existing container appdata path is missing, replaced, or unsafe; no paths were recreated. "
+               "Leave existing containers running and run ./setup --recover before any recreation.")
+    for row in rows:
+        mounts = row.get("mounts")
+        if not isinstance(mounts, list) or len(mounts) > 256 or any(not isinstance(item, dict) for item in mounts):
+            raise SafetyError("Existing Docker project has an unsupported mount inventory; no container was changed")
+        for mount in mounts:
+            if mount.get("type") != "bind" or mount.get("destination") not in {"/config", "/app/config"}:
+                continue
+            source = _collision_path(mount.get("source"))
+            if source is None:
+                raise SafetyError(message)
+            try:
+                host = no_symlinks(source).stat()
+                if not stat.S_ISDIR(host.st_mode):
+                    raise SafetyError(message)
+                pid = row.get("pid")
+                if sys.platform.startswith("linux") and type(pid) is int and 0 < pid < 2**31:
+                    # A deleted bind source may have been recreated at its old
+                    # name while the running container still holds the old inode.
+                    live = os.stat("/proc/" + str(pid) + "/root" + mount["destination"])
+                    current = no_symlinks(source).stat()
+                    identity = lambda info: (info.st_dev, info.st_ino)
+                    if not stat.S_ISDIR(live.st_mode) or identity(host) != identity(live) or identity(host) != identity(current):
+                        raise SafetyError(message)
+            except (OSError, SafetyError):
+                raise SafetyError(message) from None
+
+
+def project_conflicts(c, stage, runner=run):
+    """Inspect only selected fields; return conflicts without reading app data."""
+    project = f"{c['deployment_name']}-{stage}"
     ids = docker(runner, "ps", "--all", "--filter", f"label=com.docker.compose.project={c['deployment_name']}-{stage}", "--format", "{{.ID}}").stdout.split()
     if not ids:
-        return
-    raw = docker(runner, "inspect", *ids, "--format", "{{json .Config.Labels}}").stdout
-    for line in raw.splitlines():
-        labels = json.loads(line)
-        if labels.get("systems.samarie.deployment") != c["deployment_id"] or labels.get("systems.samarie.stage") != str(stage):
-            raise SafetyError("Compose project collides with containers owned by another deployment; choose a unique deployment_name")
+        return None
+    if len(ids) > 256 or any(not re.fullmatch(r"[a-fA-F0-9]{12,64}", value) for value in ids):
+        raise SafetyError("Existing Docker project returned an invalid container inventory; no container was changed")
+    raw = docker(runner, "inspect", *ids, "--format", _PROJECT_INSPECT).stdout
+    if len(raw) > 2 * 1024 * 1024:
+        raise SafetyError("Existing Docker project inventory exceeded the safe size limit; no container was changed")
+    try:
+        rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    except (ValueError, TypeError):
+        raise SafetyError("Existing Docker project returned an unreadable inventory; no container was changed") from None
+    if (len(rows) != len(ids) or any(not isinstance(row, dict) or not isinstance(row.get("id"), str)
+            or not re.fullmatch(r"[a-fA-F0-9]{12,64}", row["id"]) for row in rows)
+            or len({row["id"] for row in rows}) != len(rows)
+            or any(sum(row["id"].startswith(identifier) for row in rows) != 1 for identifier in ids)):
+        raise SafetyError("Existing Docker project inventory is incomplete or ambiguous; no container was changed")
+    conflicts = [row for row in rows if row.get("deployment_id") != c["deployment_id"]
+                 or row.get("stage") != str(stage) or row.get("project") != project]
+    if not conflicts:
+        _check_existing_appdata(rows)
+        return None
+    details = {"project": project, "requested_deployment_id": c["deployment_id"], "requested_stage": stage,
+               "containers": [_collision_container(row) for row in conflicts]}
+    details["inventory_digest"] = digest(details)
+    return details
+
+
+def check_container_ownership(c, stage, runner=run):
+    details = project_conflicts(c, stage, runner)
+    if details is not None:
+        raise ProjectCollision(details)
 
 
 def torrent_network_proof(c, runner=run):
@@ -495,13 +642,43 @@ def runtime_files(c, stage):
     return root, guard_path, saved_config
 
 
-def install_unit(c, stage, runner=run, *, changed=False):
+def _unit_has_owner(path, deployment_id):
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 64 * 1024:
+        raise SafetyError("The existing systemd unit is not a bounded regular generated file; it was retained")
+    try:
+        markers = re.findall(r"^# Managed by Samurai Stack: ([^\r\n]+)$", path.read_text(encoding="utf-8"), re.M)
+    except (OSError, UnicodeError):
+        raise SafetyError("The existing systemd unit could not be read safely; it was retained") from None
+    return markers == [deployment_id]
+
+
+def retire_obsolete_unit(c, stage, runner=run, *, unit_root=Path("/etc/systemd/system"),
+                         archive_root=Path("/var/lib/samurai-stack/retired-units"), actions=None):
+    """Retire only an obsolete generated unit proven to have zero containers."""
+    unit_name = f"samurai-{c['deployment_name']}-{stage}.service"
+    path = Path(unit_root) / unit_name
+    no_symlinks(path)
+    if path.exists() and not _unit_has_owner(path, c["deployment_id"]):
+        from .retired_units import retire_conflicting
+        result = retire_conflicting(c, stage, runner=runner, unit_root=Path(unit_root), archive_root=Path(archive_root))
+        if path.exists() and not _unit_has_owner(path, c["deployment_id"]):
+            raise SafetyError("A systemd unit with this name is not owned by this deployment; no runtime files were replaced")
+        if result is not None:
+            if actions is not None:
+                actions.append(result)
+            return result
+    return None
+
+
+def install_unit(c, stage, runner=run, *, changed=False, actions=None,
+                 unit_root=Path("/etc/systemd/system"), archive_root=Path("/var/lib/samurai-stack/retired-units")):
+    # A foreign old unit may be in a restart loop. Stop/archive it, with the
+    # dedicated zero-container proof, before overwriting its guard or site file.
+    retire_obsolete_unit(c, stage, runner, unit_root=unit_root, archive_root=archive_root, actions=actions)
     root, guard, config = runtime_files(c, stage)
     unit_name = f"samurai-{c['deployment_name']}-{stage}.service"
-    path = Path("/etc/systemd/system") / unit_name
-    no_symlinks(path)
-    if path.exists() and "# Managed by Samurai Stack: " + c["deployment_id"] not in path.read_text():
-        raise SafetyError("A systemd unit with this name is not owned by this deployment")
+    path = no_symlinks(Path(unit_root) / unit_name)
     command = " ".join(["/usr/bin/docker", "--context", "default", *compose_args(c, stage)])
     required_mounts = str(root) if stage == 4 else f"{c['storage']['data_root']} {root}"
     text = f"# Managed by Samurai Stack: {c['deployment_id']}\n[Unit]\nDescription=Samurai Stack stage {stage}\nRequires=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\nRequiresMountsFor={required_mounts}\nStartLimitIntervalSec=300\nStartLimitBurst=3\n\n[Service]\nType=simple\nUMask=0077\nExecStartPre=/usr/bin/python3 {guard} {config} {stage}\nExecStart={command} up --no-color --abort-on-container-failure --pull never\nExecStop={command} stop --timeout 45\nRestart=on-failure\nRestartSec=15\nTimeoutStopSec=75\n\n[Install]\nWantedBy=multi-user.target\n"
@@ -509,6 +686,15 @@ def install_unit(c, stage, runner=run, *, changed=False):
     atomic_write(path, text, replace=path.exists(), mode=0o644)
     runner(["systemctl", "daemon-reload"])
     runner(["systemctl", "enable", unit_name])
+    try:
+        # Clear the exact owned unit's earlier restart-loop rate limit, not all
+        # systemd failures on this host. A newly installed unit may be not-found
+        # until systemd loads it; start below remains the readiness authority.
+        runner(["systemctl", "reset-failed", unit_name])
+    except SafetyError:
+        loaded = runner(["systemctl", "show", unit_name, "--property=LoadState", "--value"]).stdout.strip()
+        if loaded != "not-found":
+            raise
     runner(["systemctl", "restart" if changed else "start", unit_name])
     return unit_name
 
@@ -517,14 +703,25 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
     verify_plan(c, stage, document, accepted, runner)
     if os.name == "posix" and os.geteuid() != 0 and (stage != 0 or os.geteuid() != c["puid"] or os.getegid() != c["pgid"]):
         raise SafetyError("Apply requires sudo on the target VM; filesystem and service ownership must be controlled")
+    if stage:
+        # A regenerated site UUID must not prepare or repopulate the original
+        # appdata paths before discovering the still-running old project.
+        check_container_ownership(c, stage, runner)
     initialize_install(c)
     with deployment_lock(c):
         # Another accepted apply may have finished between the early review
         # check and this lock acquisition. Revalidate before changing receipts
         # or deployment files, while this invocation owns the lock.
         verify_plan(c, stage, document, accepted, runner)
+        if stage:
+            check_container_ownership(c, stage, runner)
+        recovery_actions = []
+        if stage:
+            retire_obsolete_unit(c, stage, runner, actions=recovery_actions)
         path = receipt_path(c, stage)
         receipt = {"deployment_id": c["deployment_id"], "stage": stage, "config_digest": digest(c), "started": now(), "status": "applying"}
+        if recovery_actions:
+            receipt["recovery_actions"] = recovery_actions
         write_json(path, receipt, replace=path.exists())
         try:
             if stage == 0:
@@ -560,7 +757,7 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
                 if stage != 4:
                     storage.verify(c, runner)
                 docker(runner, *compose_args(c, stage), "config", "--quiet")
-                unit = install_unit(c, stage, runner, changed=changed)
+                unit = install_unit(c, stage, runner, changed=changed, actions=recovery_actions)
                 deadline = time.monotonic() + ready_timeout
                 while True:
                     try:
@@ -571,6 +768,8 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
                             raise SafetyError("Stage readiness timed out; containers/configuration preserved. Inspect journalctl for this stage") from None
                         time.sleep(3)
                 result = {"unit": unit, "containers": health, "configuration": "pending; run configure then verify"}
+                if recovery_actions:
+                    result["recovery_actions"] = recovery_actions
             receipt.update(status="prepared" if stage == 0 else "started", finished=now(), result=result)
             write_json(path, receipt, replace=True)
             return receipt

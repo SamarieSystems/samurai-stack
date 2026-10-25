@@ -241,6 +241,11 @@ def main(argv=None):
                     result = proxmox.apply(p, document)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2 if isinstance(result, dict) and result.get("status") in {"pending", "failed", "blocked"} else 0
+    except engine.ProjectCollision as exc:
+        print(json.dumps({"status": "blocked", "error_code": "EXISTING_INSTALLATION_IDENTITY_CONFLICT",
+                          "details": exc.details}, indent=2, sort_keys=True))
+        print("ERROR: " + engine.format_project_collision(exc.details), file=sys.stderr)
+        return 1
     except (SafetyError, ProxmoxError, OSError, ValueError, KeyError) as exc:
         # Do not echo arbitrary vendor/server exceptions or payloads.
         message = str(exc) if isinstance(exc, (SafetyError, ProxmoxError)) else "Operation failed validation or local I/O; inspect the relevant private configuration"

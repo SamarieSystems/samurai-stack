@@ -42,7 +42,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.1.0-alpha.3
+git checkout v0.1.0-alpha.6
 python3 stack --version
 ```
 
@@ -55,6 +55,12 @@ separate media and torrents, read the multi-VM note below before creating
 configuration on each machine.
 
 ## 2. Connect storage, then describe the installation
+
+In these examples, `site.json` means your actual private configuration. Guided
+alpha 6 installations save it under
+`/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`; use that
+absolute path with the advanced CLI's `--config` option instead of generating
+another site in a new checkout. Explicit older private site paths remain valid.
 
 Create and mount the intended NAS export yourself, or select an existing local
 Linux filesystem. [STORAGE.md](STORAGE.md) covers numeric identities, NFS and

@@ -5,7 +5,7 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.1.0 alpha 5.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
+**0.1.0 alpha 6.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
 
 ## Start here
 
@@ -13,26 +13,32 @@ Inside a **new Debian 13 KVM/QEMU VM**, open a root console (`su -` if needed):
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.5 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.6 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
 From a normal user account, the installer requests sudo when available; otherwise use the root console. It does not need `pip`, a Python virtual environment or copied plan hashes. [Quickstart](docs/QUICKSTART.md) covers each screen, media accounts and the remaining provider choices.
 
-Already have the release source? Run `./setup` from that directory. An existing `site.json` and stored credentials are reused. Keep them when updating the source.
+Already have the release source? Run `./setup`. After storage verification,
+configuration is saved outside the source folder at
+`/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`; progress also
+lives under `/var/lib/samurai-stack/setup`. Replacing a ZIP or moving the
+checkout does not create another installation identity. Existing private
+source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.pyz` from the
-[alpha 5 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5),
-check its supplied `SHA256SUMS`, then run this from the existing source directory
-as root:
+[alpha 6 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.6),
+check its supplied `SHA256SUMS`, then run as root:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --config site.json 3
+python3 /path/to/samurai-setup.pyz 3
 ```
 
-This resumes media setup using the original configuration, deployment ID,
-appdata and private credentials. No Git checkout or source replacement is needed.
-Use an absolute `--config` path when running from another directory.
+This resumes a uniquely identified saved installation. For an older release
+whose private configuration has not been registered yet, use
+`python3 /path/to/samurai-setup.pyz --config /path/to/existing/site.json 3`.
+No Git checkout or source replacement is needed. Preserve appdata and secrets;
+the saved configuration does not contain their databases or passwords.
 
 If the machine still runs Windows or has important files on its disks, first choose a safe VM and storage arrangement. This does not install Proxmox or convert the machine in place. Use the [deployment intake](docs/DEPLOYMENT-NIGHT.md) and [Proxmox guide](docs/PROXMOX.md) before changing the physical host.
 
@@ -41,7 +47,7 @@ If the machine still runs Windows or has important files on its disks, first cho
 | Step | What you get |
 | --- | --- |
 | **1. Prepare this guest** | Checks the Debian/Ubuntu guest, shows package/repository changes, then installs Docker, Compose, the guest agent and NFS support after confirmation. |
-| **2. Connect storage** | Guides local storage or a dedicated NFS export, reviews a new persistent guest mount when needed, then verifies the media identity and prepares the data tree. |
+| **2. Connect storage** | Lists suitable mounted local filesystems or guides a dedicated NFS export. Reviews the backing mount and a new empty media directory, then verifies access and prepares the data tree. |
 | **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls administrator and separate everyday viewer access, saves private API keys, enables hardlinks, selects the owned Jellyfin libraries in Seerr and connects the apps. Usenet setup tests verified TLS and NNTP authentication in the terminal. |
 | **4. Set up VPN torrents** | qBittorrent behind Gluetun, protocol-specific hidden credential prompts, normal magnet entry and application connections. |
 | **5. Set up management** | Dockge and Uptime Kuma, with optional Homarr. Account creation and a delivered notification still need your input. |
@@ -71,6 +77,14 @@ Downloads and libraries share a consistent `/data` tree. Databases and app confi
 Keep the installation on a trusted LAN or private VPN. No public DNS, router forwarding or WAN reverse proxy is created. Dockge can administer its local Docker host, so protect its login accordingly. Read [Security](docs/SECURITY.md) before exposing anything; application login alone is not a complete internet boundary.
 
 Generated systemd units own guarded startup. Use them for whole-stack maintenance; Dockge remains useful for logs and container terminals. [Recovery](docs/RECOVERY.md) explains the controller interaction and resuming without deleting state.
+
+Use `./setup --recover` for a read-only container, mount and saved-path report.
+Conflicting projects and missing or replaced appdata paths stop setup before
+recreation. A leftover generated systemd unit can be privately archived only
+when its project and its old installation UUID have no containers, including
+stopped ones. This does not restore deleted application databases. A wrong
+storage choice in an unused, unregistered setup has a separate
+[`--choose-storage` correction](docs/QUICKSTART.md#correct-an-unused-storage-choice).
 
 The simple torrent stack has no ClamAV or approval queue. Files remain untrusted after downloading. This project does not change security controls on another existing installation.
 

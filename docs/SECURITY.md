@@ -83,6 +83,14 @@ explicitly shared container secrets require restricted group readability; their
 containing host directory remains private. Keep these files, site configuration,
 receipts and application-consistent backups protected.
 
+Verified site configuration is also retained in the root-private host-bound
+registry under `/var/lib/samurai-stack/installations`; guided progress and
+diagnostics live under `/var/lib/samurai-stack/setup`. Site JSON excludes
+credentials, but private diagnostics and application files can contain them.
+Do not publish these directories with a source archive. Deleting the checkout
+does not erase this installation state, and deleting appdata cannot be repaired
+from the registry alone.
+
 HTTP provisioning requests do not follow redirects or use ambient proxy
 variables. This prevents an API key from being forwarded to a redirected origin
 or an unrelated environment proxy. Configure each provider's final reachable

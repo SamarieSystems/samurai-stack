@@ -1,6 +1,7 @@
 """Guided workflow tests retain the actual reviewed engine boundaries."""
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,10 @@ class GuidedSetupTests(unittest.TestCase):
         self.repo = self.root / 'checkout'; self.repo.mkdir()
         self.messages = []
         self.read = mock.Mock(return_value='no')
-        self.ui = setup.GuidedSetup(self.repo, self.root / 'site.json', input_fn=self.read, output_fn=self.messages.append)
+        self.ui = setup.GuidedSetup(self.repo, self.root / 'site.json', input_fn=self.read, output_fn=self.messages.append,
+                                    state_base=self.root / 'host-state', registry_root=self.root / 'registry')
+        self.remember = self.enterContext(mock.patch.object(self.ui, '_remember_configuration',
+                                                          return_value=self.root / 'registry/site.json'))
         self.c = default_config('192.168.50.20')
         self.model = {'services': {'jellyfin': {'image': 'synthetic-image'}}}
         self.compose = self.root / 'compose.json'; self.compose.write_text(json.dumps(self.model))
@@ -33,7 +37,7 @@ class GuidedSetupTests(unittest.TestCase):
     def install_fixture(self, stage=2, guarded=True):
         stack = ExitStack()
         self.addCleanup(stack.close)
-        for name in ('preflight', 'check_container_ownership', 'service_health'):
+        for name in ('preflight', 'check_docker', 'check_container_ownership', 'service_health'):
             stack.enter_context(mock.patch.object(engine, name))
         stack.enter_context(mock.patch.object(engine, 'compose_path', return_value=self.compose))
         stack.enter_context(mock.patch.object(engine, 'recipe', return_value=self.model))
@@ -95,6 +99,8 @@ class GuidedSetupTests(unittest.TestCase):
         stdin = mock.Mock()
         stdin.isatty.return_value = True
         with redirect_stdout(output), redirect_stderr(output), \
+             mock.patch('samurai_stack.setup_recovery.resolve_configuration', return_value=self.ui.config_path), \
+             mock.patch('samurai_stack.installation_registry.draft_directory', return_value=self.root / 'host-draft'), \
              mock.patch.object(setup.sys, 'platform', 'linux'), \
              mock.patch.object(setup.sys, 'stdin', stdin), \
              mock.patch.object(setup.os, 'geteuid', return_value=0, create=True), \
@@ -377,12 +383,130 @@ class GuidedSetupTests(unittest.TestCase):
 
     def test_distinct_site_files_never_share_verified_progress(self):
         self.ui.mark(1, 'verified')
-        other = setup.GuidedSetup(self.repo, self.root / 'other-site.json', input_fn=self.read, output_fn=self.messages.append)
+        other = setup.GuidedSetup(self.repo, self.root / 'other-site.json', input_fn=self.read, output_fn=self.messages.append,
+                                  state_base=self.root / 'host-state', registry_root=self.root / 'registry')
         self.assertNotEqual(self.ui.state_root, other.state_root)
         self.assertEqual({}, other.state())
         other.mark(2, 'paused')
         self.assertEqual({'1'}, set(self.ui.state()))
         self.assertEqual({'2'}, set(other.state()))
+
+    def test_replacing_checkout_keeps_progress_for_the_same_installation(self):
+        write_json(self.ui.config_path, self.c)
+        self.ui.mark(2, 'verified')
+        second = self.root / 'replacement-checkout'; second.mkdir()
+        write_json(second / 'site.json', self.c)
+        resumed = setup.GuidedSetup(second, second / 'site.json', state_base=self.root / 'host-state',
+                                    registry_root=self.root / 'registry')
+        self.assertEqual(self.ui.state_root, resumed.state_root)
+        self.assertEqual('verified', resumed.state()['2']['status'])
+        self.assertFalse((second / '.setup-state').exists())
+
+    def legacy_registry_fixture(self, source_config=None):
+        source = self.repo / 'site.json'
+        write_json(source, source_config or self.c)
+        old = source.parent / '.setup-state' / hashlib.sha256(str(source.absolute()).encode()).hexdigest()[:16]
+        old.mkdir(parents=True, mode=0o700)
+        write_json(old / 'progress.json', {'1': {'status': 'verified'}, '2': {'status': 'verified'}})
+        canonical = self.root / 'registry' / self.c['deployment_id'] / 'site.json'
+        canonical.parent.mkdir(parents=True)
+        write_json(canonical, self.c)
+        return canonical, old
+
+    def test_first_registry_migration_keeps_matching_legacy_source_progress(self):
+        canonical, old = self.legacy_registry_fixture(dict(self.c, timezone='Etc/UTC'))
+        before = (old / 'progress.json').read_bytes()
+        ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
+        self.assertEqual('verified', ui.state()['1']['status'])
+        self.assertEqual('verified', ui.state()['2']['status'])
+        ui.mark(3, 'paused')
+        self.assertEqual({'1', '2', '3'}, set(ui.state()))
+        self.assertEqual(before, (old / 'progress.json').read_bytes())
+        self.assertEqual(self.c, json.loads(canonical.read_text()))
+
+    def test_portable_bundle_reads_matching_cwd_legacy_progress(self):
+        canonical, old = self.legacy_registry_fixture()
+        bundle = self.root / 'portable-bundle'; bundle.mkdir()
+        write_json(bundle / 'site.json', dict(self.c, install_root='/opt/unrelated-installation'))
+        original = (old / 'progress.json').read_bytes()
+        with mock.patch.object(setup.Path, 'cwd', return_value=self.repo):
+            ui = setup.GuidedSetup(bundle, canonical, state_base=self.root / 'host-state')
+            self.assertEqual('verified', ui.state()['2']['status'])
+            ui.mark(3, 'paused')
+        self.assertEqual(original, (old / 'progress.json').read_bytes())
+        self.assertEqual(self.c, json.loads(canonical.read_text()))
+
+    def test_storage_correction_requires_explicit_config_before_resolution(self):
+        message = io.StringIO()
+        with redirect_stderr(message), mock.patch('samurai_stack.setup_recovery.resolve_configuration') as resolve:
+            with self.assertRaises(SystemExit) as captured:
+                setup.main(['--choose-storage'])
+        self.assertEqual(2, captured.exception.code)
+        self.assertIn('requires --config', message.getvalue())
+        resolve.assert_not_called()
+
+    def test_storage_correction_accepts_explicit_config(self):
+        with mock.patch.object(self.ui, 'choose_storage', return_value=True) as choose:
+            code, _ = self.run_cli(['--config', str(self.ui.config_path), '--choose-storage'])
+        self.assertEqual(0, code)
+        choose.assert_called_once_with()
+
+    def test_registry_progress_never_uses_another_sources_identity(self):
+        for key, value in (('deployment_id', '8f8d3fd0-380d-42ab-9c35-ad8f08e5efcb'),
+                           ('install_root', '/opt/different-installation')):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary) / 'source'; repo.mkdir()
+                source = repo / 'site.json'
+                write_json(source, dict(self.c, **{key: value}))
+                old = repo / '.setup-state' / hashlib.sha256(str(source.absolute()).encode()).hexdigest()[:16]
+                old.mkdir(parents=True)
+                write_json(old / 'progress.json', {'2': {'status': 'verified'}})
+                canonical = Path(temporary) / 'canonical.json'; write_json(canonical, self.c)
+                ui = setup.GuidedSetup(repo, canonical, state_base=Path(temporary) / 'host-state')
+                self.assertEqual({}, ui.state())
+
+    def test_current_registry_progress_precedes_matching_source_legacy_progress(self):
+        canonical, old = self.legacy_registry_fixture()
+        ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
+        ui.mark(2, 'paused')
+        self.assertEqual('paused', ui.state()['2']['status'])
+        self.assertEqual('verified', json.loads((old / 'progress.json').read_text())['2']['status'])
+
+    def test_unsafe_source_does_not_override_or_block_canonical_progress(self):
+        from samurai_stack import installation_registry as registry
+        canonical, _ = self.legacy_registry_fixture()
+        with mock.patch.object(registry, '_owner', side_effect=SafetyError('untrusted source')):
+            ui = setup.GuidedSetup(self.repo, canonical, state_base=self.root / 'host-state')
+            self.assertEqual({}, ui.state())
+            ui.mark(2, 'paused')
+            self.assertEqual('paused', ui.state()['2']['status'])
+
+    def test_registry_failure_does_not_overwrite_the_active_site(self):
+        write_json(self.ui.config_path, self.c)
+        original = self.ui.config_path.read_bytes()
+        updated = dict(self.c, timezone='Etc/UTC')
+        self.remember.side_effect = SafetyError('Storage mount identity mismatch')
+        with self.assertRaisesRegex(SafetyError, 'mount identity'):
+            self.ui._save_configuration(updated)
+        self.assertEqual(original, self.ui.config_path.read_bytes())
+
+    def test_canonical_site_is_written_only_by_the_verified_registry(self):
+        write_json(self.ui.config_path, self.c)
+        self.remember.return_value = self.ui.config_path
+        with mock.patch.object(setup, 'write_json') as write:
+            self.ui._save_configuration(self.c)
+        self.remember.assert_called_once_with(self.c)
+        write.assert_not_called()
+
+    def test_project_collision_stops_before_plan_or_apply_prompt(self):
+        self.install_fixture()
+        details = {'project': 'homelab-2', 'requested_deployment_id': self.c['deployment_id'],
+                   'requested_stage': 2, 'containers': []}
+        with mock.patch.object(engine, 'check_container_ownership', side_effect=engine.ProjectCollision(details)), \
+             mock.patch.object(engine, 'plan') as plan, mock.patch.object(self.ui, 'invoke') as invoke, \
+             self.assertRaises(engine.ProjectCollision):
+            self.ui.install(self.c, 2)
+        plan.assert_not_called(); invoke.assert_not_called(); self.read.assert_not_called()
 
     def test_interrupting_previously_verified_step_persists_paused_state(self):
         self.ui.mark(1, 'verified')

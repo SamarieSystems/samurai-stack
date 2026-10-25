@@ -1,7 +1,53 @@
 # Alpha validation
 
-October 24, 2026. These are measured results from the release candidate, not a
-claim that every supported provider, device or deployment has been tested.
+The dated sections record measured results for each release candidate. They
+do not claim that every provider, device or deployment has been tested.
+
+## Alpha 6 source-independent state and clean-restart recovery
+
+October 25, 2026. These checks ran in isolated disposable VM 102 with synthetic
+accounts, owned test directories and restricted networking. They did not
+modify the friend's machine or existing household services and personal data.
+
+- A real enabled obsolete systemd unit with a foreign installation UUID and
+  zero project containers was stopped, disabled and archived byte-identically.
+  Fresh media setup then enrolled and verified all six enabled services:
+  Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr and Seerr. SABnzbd was disabled in
+  this torrent-only fixture; its alpha 5 acceptance remains recorded below.
+- The original source/config folder was renamed out of the way. Default
+  discovery selected the private canonical site, retained its installation
+  UUID and guided progress, and resumed media verification with zero input
+  prompts or container restarts. Regression cases cover the initial migration
+  of matching older checkout progress and portable execution from another
+  extraction directory.
+- Mounted-storage correction rejected an occupied default directory and
+  selected a new empty child. It retained the UUID, old tree and a private
+  original-config backup, then verified mount identity, access and real
+  download/library hardlinks as the configured media UID/GID. The fixture used
+  an owned ext4 bind mount inside the VM, not a formatted disk or a physical
+  drive passthrough test. Existing-file bytes, inode, mode and mtime matched.
+- The exact portable release payload passed actual root Linux pseudo-terminal
+  runs for both existing media resume and the storage-correction CLI, including
+  the normal storage apply/verify and canonical registry save. Its source site
+  stayed byte-identical during media resume; no accounts were re-prompted and
+  no existing containers restarted.
+- Acceptance caught and fixed two directory compatibility cases: a private
+  runtime site beneath a root-owned mode-755 stage directory, and private
+  drafts beneath a root-owned mode-755 setup parent. Group/other writable
+  parents remain refused, with no permission repair or chmod of existing
+  directories. Canonical registry and host draft directories remain private.
+- The regression suite checks stopped-container refusal, changed appdata
+  inodes, custom units/drop-ins, loaded-unit mismatches, failed-state reset,
+  queued/restarting service refusal during storage correction, host/config
+  identity conflicts, interruption, private backups and unchanged old files.
+- Linux passed all 632 tests with no skips. Windows ran 632 tests: 600 passed
+  and 32 platform/runtime cases were skipped, with no failures. All 16 real
+  Compose parser cases passed without starting containers.
+
+These checks prove the bounded recovery paths, not deleted-database recovery,
+physical storage health, a commercial VPN/provider connection, real download
+throughput or playback on the friend's devices. Registered storage migration
+and adoption of existing media are deliberately outside the fresh correction.
 
 ## Alpha 5 media enrollment and provider setup
 
