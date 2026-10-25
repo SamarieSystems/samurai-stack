@@ -386,6 +386,33 @@ class GuidedSetup:
             return True
         return False
 
+    def restored_accounts(self):
+        self.say('Verify restored account identities before accepting replacement application directories.')
+        self.say('Only previously verified accounts qualify. This updates a private receipt; it never creates or resets an account.')
+        directory = self._state_dir() / ('account-restore-review-' + uuid.uuid4().hex)
+        directory.mkdir(mode=0o700)
+        path = directory / 'plan.json'
+        code, document = self.invoke(['restore-accounts', 'plan', '--out', str(path)],
+                                     'Checking local application ownership and restored account identities...')
+        if code != 0 or not isinstance(document.get('review_hash'), str):
+            return False
+        for item in document.get('changes', []):
+            self.say('  Verified restored account directory: ' + APP_NAMES.get(item['app'], item['app']))
+        if document.get('changes'):
+            self.say('Private reviewed restore: ' + str(path))
+            if not self.yes('Accept these verified restored directories and retire their first-user enrollment authority?', False):
+                self.say('Restore receipt kept unchanged. No accounts were changed.')
+                return False
+            code, result = self.invoke(['restore-accounts', 'apply', '--plan', str(path), '--accept-plan', document['review_hash']],
+                                       'Saving the original receipt and accepting the verified restore...')
+            if code != 0 or result.get('ok') is not True:
+                return False
+        code, result = self.invoke(['restore-accounts', 'verify'], 'Verifying the restored receipt and existing accounts...')
+        if code == 0 and result.get('ok') is True:
+            self.say('Restored accounts verified. Resume the media applications with ./setup 3.')
+            return True
+        return False
+
     def storage(self):
         from .setup_storage import ensure_site_config
         c = ensure_site_config(self.config_path, input_fn=self.read, output_fn=self.say)
@@ -818,6 +845,7 @@ class GuidedSetup:
                 self.say('  ' + str(number) + '. ' + label + ' [' + status + ']')
             self.say('  h. Check/enable hardlinks in existing Sonarr and Radarr')
             self.say('  p. Review optional quality, audio and file-size policy')
+            self.say('  a. Verify and accept account directories after a real appdata restore')
             self.say('  r. Show read-only installation recovery inventory')
             self.say('Saved statuses show the last setup check, not live service monitoring.')
             default = next((i for i in range(1, 6) if state.get(str(i), {}).get('status') != 'verified'), 0)
@@ -843,8 +871,14 @@ class GuidedSetup:
                 continue
             if not value:
                 value = str(default)
+            if value in {'a', 'restore-accounts'}:
+                try:
+                    self.restored_accounts()
+                except (SafetyError, OSError, ValueError, RuntimeError) as exc:
+                    self.say('Account restore paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
+                continue
             if value not in {'1', '2', '3', '4', '5', '6'}:
-                self.say('Choose a number from 1 to 6, h for hardlinks, p for profiles, r for recovery, or q.')
+                self.say('Choose a number from 1 to 6, h for hardlinks, p for profiles, a for restored accounts, r for recovery, or q.')
                 continue
             try:
                 self.step(int(value))
@@ -870,12 +904,13 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
     parser.add_argument('--quality-profiles', action='store_true', help='Review optional HD/original-audio and size policy only')
+    parser.add_argument('--restore-accounts', action='store_true', help='Review account directory identity after a verified backup restore')
     args = parser.parse_args(argv)
-    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles):
+    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles or args.restore_accounts):
         parser.error('Use --fresh alone to start a new blank phases 1-6 wizard')
-    if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles):
+    if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles or args.restore_accounts):
         parser.error('Choose --recover alone; it never runs an installation step')
-    if args.choose_storage and (args.step or args.hardlinks or args.quality_profiles):
+    if args.choose_storage and (args.step or args.hardlinks or args.quality_profiles or args.restore_accounts):
         parser.error('Choose --choose-storage alone, then resume the numbered step')
     if args.choose_storage and args.config is None:
         parser.error('--choose-storage requires --config /path/to/site.json so automatic recovery cannot register the old storage choice first')
@@ -883,6 +918,8 @@ def main(argv=None):
         parser.error('Choose a numbered setup step or --hardlinks, not both')
     if args.quality_profiles and (args.step or args.hardlinks):
         parser.error('Choose --quality-profiles alone, not with another maintenance action')
+    if args.restore_accounts and (args.step or args.hardlinks or args.quality_profiles):
+        parser.error('Choose --restore-accounts alone, not with another maintenance action')
     if not sys.platform.startswith('linux') or os.geteuid() != 0 or Path('/etc/pve').exists():
         print('Run ./setup as administrator inside the intended Linux VM, not on the Proxmox host.', file=sys.stderr)
         return 1
@@ -914,6 +951,8 @@ def main(argv=None):
             return 0 if ui.hardlinks() else 2
         if args.quality_profiles:
             return 0 if ui.media_profiles() else 2
+        if args.restore_accounts:
+            return 0 if ui.restored_accounts() else 2
         if args.step:
             try:
                 return 0 if ui.step(args.step) else 2

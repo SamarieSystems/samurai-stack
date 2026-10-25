@@ -96,7 +96,11 @@ def _identity(path):
     return {"device": info.st_dev, "inode": info.st_ino}
 
 
-def _load(c):
+def _load(c, *, allow_restored_directories=False):
+    # Only the explicit reviewed restore tool may inspect a replaced directory.
+    # Ordinary setup/reservation calls retain the original fail-closed guard.
+    if type(allow_restored_directories) is not bool:
+        raise SafetyError("Restored-directory inspection requires an explicit boolean")
     root, path = _paths(c)
     if not path.exists():
         return None
@@ -109,9 +113,10 @@ def _load(c):
     for name, item in value["apps"].items():
         if name not in MEDIA_APPS or not isinstance(item, dict):
             raise SafetyError("Account reservation contains an unknown application")
-        if item.get("eligible") is True and name in catalog.stage_endpoints(c, 2):
+        if (not allow_restored_directories and (item.get("eligible") is True or item.get("restore_verified") is True)
+                and name in catalog.stage_endpoints(c, 2)):
             if item.get("directory") != _identity(root / "appdata" / name):
-                raise SafetyError("Reserved application directory was replaced; use manual enrollment")
+                raise SafetyError("Reserved application directory was replaced; after restoring verified app data, run ./setup --restore-accounts. Empty or unverified directories cannot be rebound")
     return value
 
 
@@ -693,6 +698,11 @@ def claim_unconfigured(c, *, request=engine.request, session_factory=HttpSession
         result = {"claimed": [], "preserved": [], "errors": []}
         for app in enabled:
             if receipt["apps"][app].get("eligible") is True:
+                continue
+            if receipt["apps"][app].get("state") == "verified":
+                # A verified/restored account must never regain first-owner
+                # authority when its backend later disappears or resets.
+                result["preserved"].append(app)
                 continue
             try:
                 proof = _legacy_seed(operation) if app == "jellyfin" else (

@@ -106,6 +106,32 @@ Dockge can display the generated Compose stacks, logs and terminals. The systemd
 
 There is no automatic upgrade, downgrade or database rollback command. Preserve image locks and obtain application-consistent backups before changing versions. A previous Compose file cannot undo a database migration. Use the application's documented backup/restore procedure and test a separate restore.
 
+### Accept account directories after a verified restore
+
+Restoring appdata creates new filesystem inodes. Ordinary setup deliberately
+refuses to treat a replacement directory as the original account reservation.
+After restoring consistent application files, secrets and databases, starting
+the owned applications and verifying the expected accounts, run:
+
+```bash
+./setup --restore-accounts
+./setup 3
+```
+
+The portable installer supports the same `--restore-accounts` flag. Menu action
+**a** runs this maintenance path too. It checks host/configuration identity,
+local container ownership, previously verified receipt entries and the existing
+backend accounts before offering a reviewed receipt update. The original
+receipt is backed up privately. Accepted entries lose first-user creation
+authority and remain bound to their replacement directory identity.
+This path requires the original host, installation UUID and service addresses;
+it does not adopt a different machine or deployment identity.
+
+This command does not restore files, create users or reset passwords. An empty,
+unconfigured, partially enrolled or mismatched replacement is refused. Keep
+the actual backup and diagnose the application instead of using this command
+to bypass missing data. Normal setup keeps its strict directory checks.
+
 Install-state/configuration files and private secret files are sensitive. Back them up securely. A config-file backup alone does not include media, Immich originals, database contents or an independent NAS backup. Recovery is not proven until the required applications and files have been restored elsewhere.
 
 Removing an installation is deliberately manual in this release. There is no clean-all, volume-prune, data-delete or factory-reset command.

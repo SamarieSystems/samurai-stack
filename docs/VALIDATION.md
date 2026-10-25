@@ -37,20 +37,42 @@ services and the friend's installation are outside this test environment.
   Media bytes, inodes and metadata were unchanged. An initial ordinary-tar
   fixture rounded mtimes; that evidence was retained and the backup test was
   corrected instead of being counted as a pass.
+- A subsequent installer-resume check identified that restored appdata has new
+  directory inodes, while account reservations intentionally remember their
+  original inodes. The new explicit restore-account review proved all six saved
+  account/server identities, preserved the exact old receipt and updated only
+  each changed entry's directory, eligibility and restore-verification marker.
+  Credentials, account IDs/roles, application settings and container start times
+  were unchanged. The strict ordinary guard then passed; a second restore plan
+  had no changes, and verified restored accounts could not regain first-user
+  creation authority. No general inode-check bypass was added to setup.
 - After restore, the existing non-administrator Jellyfin viewer indexed and
   played that generated sample. HTTP 200 full-stream bytes matched its SHA256;
   HTTP 206 range bytes matched the requested range. The tokenless direct-stream
   behavior already described in [security boundaries](SECURITY.md) was
   reproduced too. This is playback proof, not a claim that every stream route
   enforces account authentication or that an arbitrary client can transcode.
-- All 704 Linux tests completed successfully as root and as the ordinary
+- Two actual cold boots exercised storage startup. With the exact owned bind
+  mount present, the six media apps and all 14 wiring checks passed; Dockge and
+  Uptime Kuma returned HTTP 200. Without that mount, the generated guard refused
+  before any media container started, no fallback tree appeared, and management
+  remained available. Original fstab bytes/metadata, unit enablement and the live
+  fixture mount were restored afterward. The old media sentinel and production
+  VM configuration matched their baselines. Management used the previously
+  verified immutable image cache, not a fresh registry download.
+- All 720 Linux tests completed successfully as root and as the ordinary
   test account, with 12 explicit skips in each run. Eleven require Git, which
   the intentionally offline guest lacks. Root skips the ordinary-user elevation
   case; the ordinary account skips one root-only permission check. Node-backed
   tests ran through the owned, isolated test container. The source hygiene audit
-  scanned 111 files with zero findings. Git-dependent builder tests also run in
+  scanned 113 files with zero findings. Git-dependent builder tests also run in
   the Windows environment and hosted Linux CI; those results are separate from
   the offline guest count.
+- Windows completed the expanded 720-test suite, with 42 platform/runtime skips.
+  Hosted Ubuntu CI completed it on Python 3.11 and 3.13, with one root-only
+  permission skip per matrix job. Those Linux jobs executed the Git-dependent
+  release-builder tests and all 16 real Compose parser scenarios without
+  starting application containers.
 - MediaBot's separate public installer remains present at its existing stable
   revision. Its bounded installer suite was rerun in a private environment:
   32 passed and one Windows symlink case skipped. See the separate

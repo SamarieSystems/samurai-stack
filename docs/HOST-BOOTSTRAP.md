@@ -16,6 +16,13 @@ verified portable release. It handles the prerequisite and plan steps for you.
 The advanced commands below assume Python 3.11+ is already available. If you
 are already root, omit `sudo`; installing sudo is not a prerequisite.
 
+If Python is absent, the Bash launcher can offer its bounded installation from
+working OS repositories, without package upgrades or removals. If both Python
+and working APT sources are absent, that bootstrap stops with the actual APT
+error. The reviewed Python source-repair tool is not yet available in that
+corner case; repair the affected repository or install Python from trusted OS
+media first. The launcher does not silently rewrite repositories to get past it.
+
 Inspect first. This command performs no package installation or repository
 changes; redirecting its output creates the private plan file you requested:
 

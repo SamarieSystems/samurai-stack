@@ -1,9 +1,10 @@
 # Toward 0.2
 
-0.2 is the next repeatable-install milestone. The alpha label stays until the
-complete supported path works for someone other than its developer, including
-recovery from a failed step. A higher version number alone does not establish
-that.
+0.2 is the next repeatable-install milestone. A release candidate packages the
+integrated installer for commissioning. The final `v0.2.0` tag waits for the
+supported path to work for someone other than its developer, including recovery
+from a failed step and the provider checks below. A higher version number alone
+does not establish that.
 
 ## Release gates
 
@@ -21,6 +22,20 @@ optional Usenet, VPN-protected torrents, and management. Photos and music stay
 optional, with their own acceptance checks. GPU passthrough, public exposure,
 automatic collection migration and local LLM hosting do not gate this core
 milestone.
+
+## Candidate status on October 25
+
+The 0.2 candidate combines the Bash entry points, all alpha recovery/enrollment
+fixes, optional reviewed media profiles and reproducible release assets. The
+current [validation record](VALIDATION.md) includes real app imports, a
+consistent six-app restore and generated-video playback, alongside unit and
+Compose checks. These are bounded lab results, not subscriber-service evidence.
+
+Commercial VPN interruption/recovery with an unused provider profile, actual
+subscriber completed-download commissioning and the independent operator's
+finished-install readback remain open. An active household or friend's key
+must not be reused concurrently to manufacture that result. The final release
+is held for those checks; the candidate remains available for testing.
 
 ## What stays manual
 

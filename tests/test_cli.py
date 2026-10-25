@@ -9,6 +9,14 @@ from samurai_stack.cli import ask_bool
 
 
 class WizardAnswers(unittest.TestCase):
+    def test_account_restore_apply_requires_matching_review_before_backend_write(self):
+        from samurai_stack import restore_accounts
+        with patch.object(cli, 'load_config', return_value=cli.default_config()), \
+             patch.object(cli, 'private_read', return_value='{"review_hash":"fixture-other"}'), \
+             patch.object(restore_accounts, 'apply') as apply, redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            self.assertEqual(1, cli.main(['restore-accounts', 'apply', '--plan', 'fixture.json', '--accept-plan', 'fixture-review']))
+        apply.assert_not_called()
+
     def test_profiles_apply_requires_matching_review_before_any_write(self):
         from samurai_stack import media_profiles
         from samurai_stack.safety import SafetyError

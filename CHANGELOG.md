@@ -18,6 +18,10 @@
 - Clear incompatible provider-assigned WireGuard addresses when changing the
   selected VPN provider before torrent deployment. Preserve the old private
   configuration and keep the qBittorrent tunnel binding and fail-closed guard.
+- Add an explicit reviewed account-directory reauthorization after a real
+  application backup restore. Verify existing accounts and server identities,
+  keep the original receipt and remove first-user enrollment authority from
+  restored entries. Ordinary setup still refuses replaced or empty directories.
 - Carry forward all alpha recovery, outside-source configuration, blank fresh
   setup, hardlink verification, hidden media-account enrollment and automatic
   app/provider wiring fixes. Refresh installation instructions around the

@@ -85,6 +85,22 @@ class GuidedSetupTests(unittest.TestCase):
         self.assertEqual(['profiles', 'plan'], invoke.call_args.args[0][:2])
         self.assertNotIn('--global-sizes', invoke.call_args.args[0])
 
+    def test_restored_accounts_decline_never_updates_receipt(self):
+        document = {'review_hash': 'b' * 64, 'changes': [{'app': 'sonarr'}]}
+        with mock.patch.object(self.ui, 'invoke', return_value=(0, document)) as invoke:
+            self.assertFalse(self.ui.restored_accounts())
+        self.assertEqual(1, invoke.call_count)
+        self.assertEqual(['restore-accounts', 'plan'], invoke.call_args.args[0][:2])
+
+    def test_restored_accounts_apply_uses_reviewed_plan_and_independent_verify(self):
+        document = {'review_hash': 'b' * 64, 'changes': [{'app': 'sonarr'}]}
+        self.read.return_value = 'yes'
+        with mock.patch.object(self.ui, 'invoke', side_effect=[(0, document), (0, {'ok': True}), (0, {'ok': True})]) as invoke:
+            self.assertTrue(self.ui.restored_accounts())
+        self.assertEqual(['restore-accounts', 'apply'], invoke.call_args_list[1].args[0][:2])
+        self.assertEqual('b' * 64, invoke.call_args_list[1].args[0][-1])
+        self.assertEqual(['restore-accounts', 'verify'], invoke.call_args_list[2].args[0])
+
     def test_profile_apply_does_not_change_global_limits_without_second_review(self):
         document = {'review_hash': 'a' * 64, 'services': {}}
         self.read.side_effect = ['yes', 'no']

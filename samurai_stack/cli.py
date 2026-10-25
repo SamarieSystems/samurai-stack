@@ -106,6 +106,11 @@ def parser():
     profiles.add_argument("--out", default="profiles-plan.json")
     profiles.add_argument("--plan")
     profiles.add_argument("--accept-plan")
+    restored = commands.add_parser("restore-accounts", help="Reauthorize verified restored account directories; never create accounts")
+    restored.add_argument("action", choices=["plan", "apply", "verify"])
+    restored.add_argument("--out", default="restore-accounts-plan.json")
+    restored.add_argument("--plan")
+    restored.add_argument("--accept-plan")
     for name in ["plan", "apply", "configure", "verify", "status", "access"]:
         cmd = commands.add_parser(name)
         cmd.add_argument("stage", type=int, choices=sorted(engine.STAGES))
@@ -154,6 +159,20 @@ def main(argv=None):
                     if document.get("review_hash") != args.accept_plan:
                         raise SafetyError("Profile reviewed plan hash does not match")
                     result = media_profiles.apply(c, document)
+            elif args.command == "restore-accounts":
+                from . import restore_accounts
+                if args.action == "plan":
+                    result = restore_accounts.plan(c)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = restore_accounts.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Account restore requires --plan and --accept-plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get('review_hash') != args.accept_plan:
+                        raise SafetyError("Account restore reviewed plan hash does not match")
+                    result = restore_accounts.apply(c, document)
             elif args.command == "inspect":
                 result = {"platform": sys.platform, "cpus": os.cpu_count(), "role": c.get("role", "all"),
                           "storage": storage.check_mount(c), "gpu_mode": c["hardware"]["acceleration"]}
