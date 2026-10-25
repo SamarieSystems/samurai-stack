@@ -11,7 +11,7 @@ Use `./setup --fresh` from the current release, or run the verified portable
 asset as root inside the VM:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --fresh
+bash /path/to/samurai-setup.sh --fresh
 ```
 
 This opens a new blank **phases 1-6** wizard. It does not need an old `site.json`
@@ -53,7 +53,9 @@ authenticated connection test with certificate verification enabled and
 completes SAB's wizard. Existing configured servers are tested and preserved.
 No browser account wizard or manual API-key paste is required for the supported
 media setup. Choosing indexer accounts, subtitle providers/languages and quality
-profiles remains an operator decision. Those choices and a real
+profiles remains an operator decision. New Sonarr/Radarr accounts can opt into
+the [reviewed HD/original-audio preset](MEDIA-PROFILES.md); existing settings
+are preserved. These choices and a real
 download/import/playback test still need attention after API wiring passes.
 
 Existing configured accounts are checked without replacing their credentials
@@ -64,17 +66,17 @@ proof that no configured account exists. An incomplete wizard flag is not
 enough. Unknown state pauses for review, not an owner reset.
 
 The shortest update for an existing source ZIP uses the portable
-`samurai-setup.pyz` asset from the
-[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7).
+`samurai-setup.sh` asset from the
+[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1).
 Verify it against the supplied `SHA256SUMS`, then run as root on the media VM:
 
 ```sh
-python3 /path/to/samurai-setup.pyz 3
+bash /path/to/samurai-setup.sh 3
 ```
 
 No Git installation or source-tree replacement is required. Default discovery
 uses the trusted saved installation. For an older release not yet registered,
-use `python3 /path/to/samurai-setup.pyz --config /actual/old/site.json 3`.
+use `bash /path/to/samurai-setup.sh --config /actual/old/site.json 3`.
 Its existing saved paths and credentials are reused. Media wiring also enables
 only the two deployment-named Jellyfin movie/TV libraries in Seerr,
 after path/ID verification, while retaining unrelated selections. It does not
@@ -148,11 +150,24 @@ applications do not need to be enrolled first. Keep the existing configuration;
 creating another installation identity would prevent the ownership checks from
 matching the running services.
 
-The standalone release asset, `samurai-hardlinks.pyz`, packages the same
-focused repair for machines using an older source ZIP. Obtain it from the
-[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7)
-and verify its supplied `SHA256SUMS` checksum.
-Its command interface is:
+The portable release asset also performs this focused repair on machines
+using an older source ZIP. Obtain `samurai-setup.sh` and `SHA256SUMS` from the
+[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1)
+and verify the checksum before running it inside the media VM:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS
+bash ./samurai-setup.sh --hardlinks
+```
+
+Require `samurai-setup.sh: OK` from the checksum check. This uses the trusted
+saved installation. For an older unregistered site, append
+`--config /absolute/path/to/existing/site.json`. No source replacement or
+application redeployment is needed.
+
+The older `samurai-hardlinks.pyz` asset remains an advanced compatibility
+option requiring an already installed Python 3.11+ runtime. After verifying
+its checksum, its interface is:
 
 ```sh
 sudo python3 samurai-hardlinks.pyz --config /path/to/existing/site.json

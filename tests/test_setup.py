@@ -77,6 +77,53 @@ class GuidedSetupTests(unittest.TestCase):
             self.assertFalse(self.ui.hardlinks())
         invoke.assert_called_once()
 
+    def test_profile_decline_never_applies_or_reviews_global_limits(self):
+        document = {'review_hash': 'a' * 64, 'services': {}}
+        with mock.patch.object(self.ui, 'invoke', return_value=(0, document)) as invoke:
+            self.assertTrue(self.ui.media_profiles())
+        self.assertEqual(1, invoke.call_count)
+        self.assertEqual(['profiles', 'plan'], invoke.call_args.args[0][:2])
+        self.assertNotIn('--global-sizes', invoke.call_args.args[0])
+
+    def test_profile_apply_does_not_change_global_limits_without_second_review(self):
+        document = {'review_hash': 'a' * 64, 'services': {}}
+        self.read.side_effect = ['yes', 'no']
+        with mock.patch.object(self.ui, 'invoke', side_effect=[(0, document), (0, {'ok': True, 'profile_name': 'fixture'})]) as invoke:
+            self.assertTrue(self.ui.media_profiles())
+        self.assertEqual(2, invoke.call_count)
+        self.assertEqual(['profiles', 'apply'], invoke.call_args_list[1].args[0][:2])
+        self.assertFalse(any('--global-sizes' in call.args[0] for call in invoke.call_args_list))
+
+    def test_fresh_starr_profile_review_runs_before_first_seerr_connection(self):
+        events = []
+        self.ui._offer_media_profiles = True
+        with mock.patch.object(self.ui, 'config', return_value=self.c), \
+             mock.patch.object(self.ui, 'install', return_value=True), \
+             mock.patch.object(self.ui, 'enroll_accounts', return_value={'sonarr', 'radarr'}), \
+             mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'media_profiles', side_effect=lambda: events.append('profiles') or True), \
+             mock.patch.object(self.ui, 'wire', side_effect=lambda stage: events.append('wire') or True):
+            self.assertTrue(self.ui.media())
+        self.assertEqual(['profiles', 'wire'], events)
+
+    def test_verified_existing_accounts_do_not_offer_initial_profile_setup(self):
+        with mock.patch.object(self.ui, 'config', return_value=self.c), \
+             mock.patch.object(self.ui, 'install', return_value=True), \
+             mock.patch.object(self.ui, 'enroll_accounts', return_value={'sonarr', 'radarr', 'jellyfin'}), \
+             mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'wire', return_value=True), \
+             mock.patch.object(self.ui, 'media_profiles') as policy:
+            self.assertTrue(self.ui.media())
+        policy.assert_not_called()
+
+    def test_pending_account_inventory_excludes_verified_reservations(self):
+        from samurai_stack import onboarding
+        receipt = {'apps': {'sonarr': {'eligible': True, 'state': 'verified'},
+                            'radarr': {'eligible': True, 'state': 'intent'},
+                            'jellyfin': {'eligible': False, 'state': 'manual'}}}
+        with mock.patch.object(onboarding, '_guard'), mock.patch.object(onboarding, '_load', return_value=receipt):
+            self.assertEqual(['radarr'], onboarding.pending_apps(self.c))
+
     def test_legacy_account_enrollment_never_prompts_for_credentials(self):
         from samurai_stack import onboarding
         self.account_fixture([], False)
@@ -90,6 +137,7 @@ class GuidedSetupTests(unittest.TestCase):
         stack = self.enterContext(ExitStack())
         stack.enter_context(mock.patch.object(onboarding, 'claim_unconfigured', return_value={'claimed': [], 'preserved': [], 'errors': []}))
         stack.enter_context(mock.patch.object(onboarding, 'eligible_apps', return_value=eligible))
+        stack.enter_context(mock.patch.object(onboarding, 'pending_apps', return_value=eligible))
         stack.enter_context(mock.patch.object(onboarding, 'requires_credentials', return_value=needed))
 
     def run_cli(self, arguments):
@@ -546,7 +594,10 @@ class GuidedSetupTests(unittest.TestCase):
         self.assertEqual('paused', self.ui.state()['1']['status'])
 
     def test_real_child_vendor_output_is_private_on_failure(self):
-        self.repo.joinpath('stack').write_text('import sys\nprint("{}")\nsys.stderr.write("synthetic-private-vendor-error")\nraise SystemExit(1)\n')
+        package = self.repo / 'samurai_stack'
+        package.mkdir()
+        package.joinpath('__init__.py').write_text('')
+        package.joinpath('cli.py').write_text('import sys\nprint("{}")\nsys.stderr.write("synthetic-private-vendor-error")\nraise SystemExit(1)\n')
         code, value = self.ui.invoke(['verify', '2'], 'Checking test workflow...')
         self.assertEqual((1, {}), (code, value))
         self.assertFalse(any('synthetic-private-vendor-error' in item for item in self.messages))
@@ -583,6 +634,27 @@ class GuidedSetupTests(unittest.TestCase):
         backups = list(self.ui.state_root.glob('site-before-vpn-*.json'))
         self.assertEqual(1, len(backups))
         self.assertEqual(self.c, json.loads(backups[0].read_text()))
+
+    def test_switching_provider_discards_another_providers_assigned_address(self):
+        from samurai_stack import catalog
+        self.c['vpn'].update(provider='mullvad', wireguard_addresses='10.64.0.2/32', port_forwarding=False)
+        write_json(self.ui.config_path, self.c)
+        self.read.side_effect = ['1', '1', 'no']
+        with mock.patch.object(engine, 'compose_path', return_value=self.root / 'absent-compose'):
+            selected = self.ui.vpn_profile(self.c)
+        self.assertEqual('protonvpn', selected['vpn']['provider'])
+        self.assertNotIn('wireguard_addresses', selected['vpn'])
+        env = catalog._torrent(selected)['gluetun']['environment']
+        self.assertEqual('10.2.0.2/32', env['WIREGUARD_ADDRESSES'])
+        self.assertEqual('10.64.0.2/32', self.c['vpn']['wireguard_addresses'])
+
+    def test_same_provider_keeps_its_reviewed_wireguard_address(self):
+        self.c['vpn']['wireguard_addresses'] = '10.2.0.3/32'
+        write_json(self.ui.config_path, self.c)
+        self.read.side_effect = ['1', '1', 'no']
+        with mock.patch.object(engine, 'compose_path', return_value=self.root / 'absent-compose'):
+            selected = self.ui.vpn_profile(self.c)
+        self.assertEqual('10.2.0.3/32', selected['vpn']['wireguard_addresses'])
 
     def test_custom_openvpn_correction_imports_new_private_profile_and_updates_requested_credentials(self):
         self.c['vpn'].update(provider='custom', type='openvpn')

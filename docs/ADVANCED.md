@@ -7,7 +7,7 @@ separate plan, apply and verification result, so a failed optional component
 does not require starting the installation again.
 
 For the guided installer, start with [QUICKSTART.md](QUICKSTART.md). This guide documents the lower-level CLI for operators who want explicit plan files and individual commands. The dated [validation record](VALIDATION.md)
-states which parts of the current alpha have actually been exercised.
+states which parts of the current release candidate have actually been exercised.
 Gather the [deployment-night intake](DEPLOYMENT-NIGHT.md) first if you are setting
 this up for someone else; it lists the access, hardware and manual choices needed.
 
@@ -36,7 +36,7 @@ optional features off on a smaller host until you have the capacity.
 
 Keep this source checkout on the guest. Run the commands below from its root,
 where the `stack` file and `samurai_stack` directory are present. Use a published
-alpha source archive or a reviewed Git tag rather than mixing files from
+release source archive or a reviewed Git tag rather than mixing files from
 different releases. The toolkit uses the Python standard library, so it does
 not need `pip install`.
 
@@ -45,13 +45,24 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.1.0-alpha.7
-python3 stack --version
+git checkout v0.2.0-rc.1
+./stack --version
 ```
 
 Otherwise, download the source archive for that release on your computer and
 copy the extracted source directory into the guest over SSH. Copy the complete
-directory, including `scripts`, rather than only the `stack` launcher.
+directory, including `scripts`, rather than only the `stack` launcher. If ZIP
+extraction omitted executable permissions, run `bash ./stack` or `bash ./setup`.
+
+Both user entry points are Bash. `./setup` handles the guided menu; `./stack`
+provides the advanced CLI below. Python remains the standard-library backend,
+not a second set of installation instructions. Read-only `--help`, `--version`,
+configuration validation and offline plans do not need root or a TTY. Actual
+application apply/configure/verify operations require root in the target Linux
+guest. Interactive setup and hidden credential prompts require a terminal.
+For tooling on Windows with Python 3.11+, the advanced backend can be invoked as
+`python -m samurai_stack.cli --help` from the source directory; apply still runs
+on Linux. Do not pass a Bash launcher to Python.
 
 For the first rollout, one compact application VM is the shortest path. To
 separate media and torrents, read the multi-VM note below before creating
@@ -59,8 +70,8 @@ configuration on each machine.
 
 ## 2. Connect storage, then describe the installation
 
-In these examples, `site.json` means your actual private configuration. Guided
-current guided installations save it under
+In these examples, `site.json` means your actual private configuration.
+Current guided installations save it under
 `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`; use that
 absolute path with the advanced CLI's `--config` option instead of generating
 another site in a new checkout. Explicit older private site paths remain valid.
@@ -75,8 +86,8 @@ Check the mount before configuration:
 ```sh
 findmnt --target /mnt/media --output TARGET,SOURCE,FSTYPE,OPTIONS
 id
-python3 stack init
-python3 stack --config site.json validate
+./stack init
+./stack --config site.json validate
 ```
 
 Use your actual mountpoint instead of `/mnt/media`. The wizard asks for:
@@ -122,7 +133,7 @@ named directory on another machine is not proof that it contains the same files.
 ## 3. Prepare and verify the data tree
 
 ```sh
-sudo python3 stack --config site.json plan 0 --out plan-0-01.json
+sudo ./stack --config site.json plan 0 --out plan-0-01.json
 sudo python3 -m json.tool plan-0-01.json
 ```
 
@@ -130,8 +141,8 @@ Read the plan before applying it. Confirm the host and expected mount. Copy
 the exact `review_hash` shown in the plan into `REVIEW_HASH` below:
 
 ```sh
-sudo python3 stack --config site.json apply 0 --plan plan-0-01.json --accept-plan REVIEW_HASH
-sudo python3 stack --config site.json verify 0
+sudo ./stack --config site.json apply 0 --plan plan-0-01.json --accept-plan REVIEW_HASH
+sudo ./stack --config site.json verify 0
 ```
 
 Plan files created through `sudo` have restricted permissions, so use `sudo`
@@ -149,10 +160,10 @@ the failed run's files and receipts for diagnosis.
 ## 4. Start media, enroll accounts, connect the applications
 
 ```sh
-sudo python3 stack --config site.json plan 2 --out plan-2-01.json
+sudo ./stack --config site.json plan 2 --out plan-2-01.json
 sudo python3 -m json.tool plan-2-01.json
-sudo python3 stack --config site.json apply 2 --plan plan-2-01.json --accept-plan REVIEW_HASH
-sudo python3 stack --config site.json access 2
+sudo ./stack --config site.json apply 2 --plan plan-2-01.json --accept-plan REVIEW_HASH
+sudo ./stack --config site.json access 2
 ```
 
 Use stage 2's new hash. Inspect `compose_preview` for the selected services,
@@ -173,8 +184,8 @@ account wizards alone during this operation.
 After enrollment, the lower-level connection commands remain available:
 
 ```sh
-sudo python3 stack --config site.json configure 2
-sudo python3 stack --config site.json verify 2
+sudo ./stack --config site.json configure 2
+sudo ./stack --config site.json verify 2
 ```
 
 Use the printed private LAN URLs to choose indexers, quality profiles and
@@ -182,6 +193,11 @@ subtitle languages/providers. Do not put secrets in `site.json`, shell arguments
 a public issue or a shared transcript. Separate-host deployments may still need
 private application-key transfer with `stack secret`; a single media guest does
 not require API-key copying for the supported enrollment path.
+
+The optional [media profiles](MEDIA-PROFILES.md) have their own plan/apply/verify
+workflow. Guided `./setup --quality-profiles` reviews the HD/original-audio
+preset without replacing existing profiles or changing global size definitions
+unless that separate change is explicitly selected.
 
 `configure` creates and tests supported connections. Rerunning it verifies
 the installation's named resources; conflicting existing settings require a
@@ -199,7 +215,7 @@ provider/protocol. Import those private inputs before applying stage 3. For
 example, a provider-managed WireGuard setup requests:
 
 ```sh
-sudo python3 stack --config site.json secret vpn_wireguard_private_key
+sudo ./stack --config site.json secret vpn_wireguard_private_key
 ```
 
 A custom VPN uses its reviewed configuration file instead. The exact secret
@@ -207,12 +223,12 @@ names and forwarding options depend on the selected protocol; do not reuse an
 unrelated account password as a WireGuard key.
 
 ```sh
-sudo python3 stack --config site.json plan 3 --out plan-3-01.json
+sudo ./stack --config site.json plan 3 --out plan-3-01.json
 sudo python3 -m json.tool plan-3-01.json
-sudo python3 stack --config site.json apply 3 --plan plan-3-01.json --accept-plan REVIEW_HASH
-sudo python3 stack --config site.json access 3
-sudo python3 stack --config site.json configure 3
-sudo python3 stack --config site.json verify 3
+sudo ./stack --config site.json apply 3 --plan plan-3-01.json --accept-plan REVIEW_HASH
+sudo ./stack --config site.json access 3
+sudo ./stack --config site.json configure 3
+sudo ./stack --config site.json verify 3
 ```
 
 Use stage 3's new hash. qBittorrent gets generated local credentials in
@@ -249,7 +265,7 @@ failure. Never attest an action that has not happened.
 ## When a stage stops
 
 ```sh
-sudo python3 stack --config site.json status 2
+sudo ./stack --config site.json status 2
 sudo systemctl status samurai-homelab-2.service
 sudo journalctl -u samurai-homelab-2.service --since '20 minutes ago'
 ```

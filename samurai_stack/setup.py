@@ -45,6 +45,7 @@ class GuidedSetup:
         self.state_base = no_symlinks(Path(state_base) if state_base is not None else STATE_ROOT)
         self.registry_root = no_symlinks(Path(registry_root) if registry_root is not None else REGISTRY_ROOT)
         self._prior_state_roots = []
+        self._offer_media_profiles = False
         identity = hashlib.sha256(str(self.config_path).encode()).hexdigest()[:16]
         legacy = no_symlinks(self.config_path.parent / '.setup-state' / identity)
         if legacy.exists():
@@ -153,7 +154,10 @@ class GuidedSetup:
         """Keep advanced JSON/vendor errors private; never put secret values in argv."""
         attempt = self._state_dir() / ('attempt-' + uuid.uuid4().hex)
         attempt.mkdir(mode=0o700)
-        command = [sys.executable, str(self.repo / 'stack'), '--config', str(self.config_path), *arguments]
+        # Isolated children must not import sitecustomize or modules from a
+        # caller-supplied PYTHONPATH. The launcher validated this source root.
+        entry = 'import sys; sys.path.insert(0, sys.argv.pop(1)); from samurai_stack.cli import main; raise SystemExit(main())'
+        command = [sys.executable, '-I', '-c', entry, str(self.repo), '--config', str(self.config_path), *arguments]
         stdout, stderr = attempt / 'result.json', attempt / 'diagnostic.txt'
         self.say(activity)
         with stdout.open('xb') as out, stderr.open('xb') as err:
@@ -398,6 +402,48 @@ class GuidedSetup:
             return True
         return False
 
+    def media_profiles(self):
+        """Offer a reviewed policy without assigning profiles to existing titles."""
+        self.say('Optional media policy: 720p/1080p HDTV, WEB and Blu-ray; original audio; parsed HDR/Dolby Vision names rejected.')
+        self.say('English-origin titles keep English. Foreign titles keep their original language. Release metadata can be wrong.')
+        self.say('Existing titles, files, queues and Seerr defaults are kept. New Seerr connections prefer this profile.')
+        directory = self._state_dir() / ('profile-review-' + uuid.uuid4().hex)
+        directory.mkdir(mode=0o700)
+
+        def reviewed_apply(include_sizes):
+            path = directory / ('global-sizes.json' if include_sizes else 'profiles.json')
+            arguments = ['profiles', 'plan', '--out', str(path)]
+            if include_sizes:
+                arguments.append('--global-sizes')
+            code, document = self.invoke(arguments, 'Reading live Sonarr/Radarr policy schemas...')
+            if code != 0 or not isinstance(document.get('review_hash'), str):
+                return False
+            for service, item in document.get('services', {}).items():
+                self.say('  ' + APP_NAMES.get(service, service) + ': ' + str(item.get('action')) + ' ' + str(item.get('profile')))
+                for change in item.get('size_changes', []):
+                    limits = change['after']
+                    self.say('    ' + str(change['quality']) + ': min/preferred/max ' + '/'.join(str(limits[key]) for key in ('minSize', 'preferredSize', 'maxSize')) + ' MB/minute')
+            self.say('Private reviewed policy: ' + str(path))
+            question = ('Apply these shared size limits to ALL profiles for the listed qualities?' if include_sizes
+                        else 'Create/verify these optional profiles without changing existing titles?')
+            if not self.yes(question, False):
+                self.say('Policy kept unchanged. Use p in ./setup to review it later.')
+                return None
+            code, result = self.invoke(['profiles', 'apply', '--plan', str(path), '--accept-plan', document['review_hash']],
+                                       'Saving the reviewed policy and verifying live readback...')
+            if code != 0 or result.get('ok') is not True:
+                return False
+            self.say('Verified profile: ' + str(result.get('profile_name')))
+            return True
+
+        applied = reviewed_apply(False)
+        if applied is not True:
+            return applied is None
+        self.say('File-size limits are shared application settings. Existing files stay in place; future grabs using other profiles are affected too.')
+        if self.yes('Review the optional runtime-scaled size limits?', False):
+            return reviewed_apply(True) is not False
+        return True
+
     def choose_storage(self):
         from .setup_local_storage import choose_replacement
         c = self.config()
@@ -437,12 +483,14 @@ class GuidedSetup:
 
     def enroll_accounts(self, c):
         from . import onboarding
+        self._offer_media_profiles = False
         self.say('Checking existing accounts and proving which applications still have no credentials...')
         claimed = onboarding.claim_unconfigured(c)
         if claimed['errors']:
             self.report(claimed)
             return None
         eligible = onboarding.eligible_apps(c)
+        self._offer_media_profiles = bool(set(onboarding.pending_apps(c)).intersection({'sonarr', 'radarr'}))
         saved = engine.secret_path(c, 'onboarding_credentials.json')
         credentials = None
         needed = onboarding.requires_credentials(c)
@@ -566,6 +614,11 @@ class GuidedSetup:
         self.say('\nYour media application addresses:')
         self.endpoints(c, 2)
         self.say('Accounts and API keys are ready. Seerr uses Jellyfin sign-in; use the everyday viewer for watching and requesting.')
+        if self._offer_media_profiles:
+            if not self.media_profiles():
+                return False
+        else:
+            self.say('Optional HD/original-audio profiles are available from p in ./setup; existing profiles were kept.')
         self.say('Connecting the media applications automatically...')
         return self.wire(2)
 
@@ -649,6 +702,10 @@ class GuidedSetup:
             self.say('Choose 1, 2 or 3.')
         vpn = dict(c['vpn'])
         vpn['provider'] = {'1': 'protonvpn', '2': 'mullvad', '3': 'custom'}[choice]
+        if vpn['provider'] != c['vpn']['provider']:
+            # Assigned tunnel addresses belong to the provider that issued
+            # them. In particular, Proton must not inherit a Mullvad address.
+            vpn.pop('wireguard_addresses', None)
         if choice == '2':
             vpn.update(type='wireguard', port_forwarding=False)
             while True:
@@ -760,6 +817,7 @@ class GuidedSetup:
                 status = state.get(str(number), {}).get('status', 'not started')
                 self.say('  ' + str(number) + '. ' + label + ' [' + status + ']')
             self.say('  h. Check/enable hardlinks in existing Sonarr and Radarr')
+            self.say('  p. Review optional quality, audio and file-size policy')
             self.say('  r. Show read-only installation recovery inventory')
             self.say('Saved statuses show the last setup check, not live service monitoring.')
             default = next((i for i in range(1, 6) if state.get(str(i), {}).get('status') != 'verified'), 0)
@@ -777,10 +835,16 @@ class GuidedSetup:
                 from .recovery import inventory
                 self.say(json.dumps(inventory(), indent=2, sort_keys=True))
                 continue
+            if value in {'p', 'profiles'}:
+                try:
+                    self.media_profiles()
+                except (SafetyError, OSError, ValueError, RuntimeError) as exc:
+                    self.say('Profile setup paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A local prerequisite failed.'))
+                continue
             if not value:
                 value = str(default)
             if value not in {'1', '2', '3', '4', '5', '6'}:
-                self.say('Choose a number from 1 to 6, h for hardlinks, r for recovery, or q.')
+                self.say('Choose a number from 1 to 6, h for hardlinks, p for profiles, r for recovery, or q.')
                 continue
             try:
                 self.step(int(value))
@@ -805,17 +869,20 @@ def main(argv=None):
     parser.add_argument('--choose-storage', action='store_true', help='Correct an empty, unregistered installation storage choice without deleting media')
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--hardlinks', action='store_true', help='Check/enable hardlinks only; no deployment or media import')
+    parser.add_argument('--quality-profiles', action='store_true', help='Review optional HD/original-audio and size policy only')
     args = parser.parse_args(argv)
-    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks):
+    if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles):
         parser.error('Use --fresh alone to start a new blank phases 1-6 wizard')
-    if args.recover and (args.step or args.hardlinks or args.choose_storage):
+    if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles):
         parser.error('Choose --recover alone; it never runs an installation step')
-    if args.choose_storage and (args.step or args.hardlinks):
+    if args.choose_storage and (args.step or args.hardlinks or args.quality_profiles):
         parser.error('Choose --choose-storage alone, then resume the numbered step')
     if args.choose_storage and args.config is None:
         parser.error('--choose-storage requires --config /path/to/site.json so automatic recovery cannot register the old storage choice first')
     if args.hardlinks and args.step:
         parser.error('Choose a numbered setup step or --hardlinks, not both')
+    if args.quality_profiles and (args.step or args.hardlinks):
+        parser.error('Choose --quality-profiles alone, not with another maintenance action')
     if not sys.platform.startswith('linux') or os.geteuid() != 0 or Path('/etc/pve').exists():
         print('Run ./setup as administrator inside the intended Linux VM, not on the Proxmox host.', file=sys.stderr)
         return 1
@@ -845,6 +912,8 @@ def main(argv=None):
             return 0 if ui.choose_storage() else 2
         if args.hardlinks:
             return 0 if ui.hardlinks() else 2
+        if args.quality_profiles:
+            return 0 if ui.media_profiles() else 2
         if args.step:
             try:
                 return 0 if ui.step(args.step) else 2

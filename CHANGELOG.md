@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0-rc.1 - 2026-10-25
+
+- Standardize operator entry points on Bash: source `./setup` and `./stack`,
+  plus a self-contained downloadable `samurai-setup.sh`. Python remains the
+  dependency-light implementation behind the launchers. Source and portable
+  paths share preflight/help code, preserve arguments and working directory,
+  and isolate Python imports from the caller's environment.
+- Keep read-only recovery usable without a TTY, while credential enrollment
+  and installation still require an interactive terminal in the intended VM.
+  Validate the portable payload before private extraction and clean up only
+  its owned temporary directory.
+- Add reviewed, optional original-audio HD profiles using live Sonarr/Radarr
+  schemas. Offer them during fresh media enrollment and through menu action p.
+  New Seerr connections prefer the managed profile. Existing titles, accounts
+  and Seerr defaults are retained. Shared size limits require a separate review.
+- Clear incompatible provider-assigned WireGuard addresses when changing the
+  selected VPN provider before torrent deployment. Preserve the old private
+  configuration and keep the qBittorrent tunnel binding and fail-closed guard.
+- Carry forward all alpha recovery, outside-source configuration, blank fresh
+  setup, hardlink verification, hidden media-account enrollment and automatic
+  app/provider wiring fixes. Refresh installation instructions around the
+  same numbered Bash workflow.
+
+This candidate is for the documented Debian CPU-only deployment path. Actual
+provider credentials, ports, playback clients and notification destinations
+still require commissioning on the intended installation. See VALIDATION.md
+and ROADMAP.md for measured evidence and remaining release gates.
+
 ## 0.1.0-alpha.7 - 2026-10-25
 
 - Add `./setup --fresh` for an intentional application reset. Open a new blank

@@ -116,7 +116,9 @@ class SetupBundleTests(unittest.TestCase):
             if os.name == "posix":
                 self.assertEqual(repo.stat().st_mode & 0o777, 0o700)
                 self.assertEqual((repo / "samurai_stack/setup.py").stat().st_mode & 0o777, 0o600)
-            child = subprocess.run([sys.executable, str(repo / "stack"), "--help"], cwd=repo,
+            child = subprocess.run([sys.executable, "-I", "-c",
+                "import sys; sys.path.insert(0, sys.argv.pop(1)); from samurai_stack.cli import main; raise SystemExit(main())",
+                str(repo), "--help"], cwd=repo,
                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20)
             self.assertEqual(child.returncode, 0, child.stderr)
             self.assertIn("usage", child.stdout.lower())

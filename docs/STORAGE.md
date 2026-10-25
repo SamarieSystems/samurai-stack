@@ -4,8 +4,9 @@ The tool does not create NAS accounts or exports remotely. Synology, TrueNAS and
 
 Create a dedicated user/group or ID mapping with access only to the intended media tree. Decide your numeric media UID/GID first; the same IDs must mean the same access on each guest and NAS. Map a non-root media identity deliberately rather than enabling unrestricted root access to an entire NAS.
 
-Guided `./setuppart2` can select an already mounted NFS export or connect one
-new export at an empty local mountpoint. It previews that exact connection and
+Guided `./setup 2` (or `bash ./samurai-setup.sh 2` with the verified portable
+release) lists suitable mounted local Linux filesystems and NFS exports. It
+can also connect one new export at an empty local mountpoint. It previews that exact connection and
 asks before mounting or adding its persistent fstab entry. Existing conflicting
 mounts/entries and nonempty mountpoints are refused; the original fstab is backed
 up privately before one reviewed entry is appended. A previously connected

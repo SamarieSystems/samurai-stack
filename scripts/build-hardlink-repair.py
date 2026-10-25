@@ -1,23 +1,38 @@
 #!/usr/bin/env python3
 """Package only public Python sources into a standalone existing-install repair."""
 import argparse
+import io
+import os
 from pathlib import Path
+import stat
 import zipfile
 
 
-def build(destination):
-    root = Path(__file__).resolve().parents[1]
+def build(destination, *, root=None):
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
     destination = Path(destination)
-    if destination.exists():
-        raise FileExistsError('Refusing to overwrite an existing repair artifact')
-    with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('LICENSE', root.joinpath('LICENSE').read_bytes())
-        archive.writestr('__main__.py', 'from samurai_stack.hardlinks import main\nraise SystemExit(main())\n')
-        dependencies = ('__init__.py', 'catalog.py', 'engine.py', 'hardlinks.py',
-                        'integrations.py', 'safety.py', 'storage.py')
-        for name in dependencies:
-            source = root / 'samurai_stack' / name
-            archive.writestr(source.relative_to(root).as_posix(), source.read_bytes())
+    dependencies = ('__init__.py', 'catalog.py', 'engine.py', 'hardlinks.py',
+                    'integrations.py', 'safety.py', 'storage.py')
+    values = {'__main__.py': b'from samurai_stack.hardlinks import main\nraise SystemExit(main())\n'}
+    for name in ('LICENSE', *('samurai_stack/' + item for item in dependencies)):
+        source = root / name
+        if any(path.is_symlink() for path in (source, *source.parents)):
+            raise ValueError('Repair sources cannot be symbolic links')
+        info = source.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 2 * 1024 * 1024:
+            raise ValueError('Repair sources must be bounded regular public files')
+        values[name] = source.read_bytes()
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for name, value in sorted(values.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o600) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, value)
+    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(data.getbuffer())
     return destination
 
 

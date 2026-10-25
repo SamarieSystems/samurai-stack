@@ -10,7 +10,7 @@ If the friend already runs Jellyfin/qBit on combined disks, start with the
 existing-machine branch below. Do not install Proxmox over that machine or
 rebuild its storage pool just to follow the new-guest path.
 
-This is an alpha with a recorded disposable-machine acceptance pass, not a
+This is a release candidate with recorded disposable-machine checks, not a
 replacement for checking the actual machine and provider. Read
 [QUICKSTART.md](QUICKSTART.md) for the guided menu and
 [VALIDATION.md](VALIDATION.md) for the evidence and remaining limits.
@@ -96,7 +96,7 @@ give the new Sonarr/Radarr a writable existing collection during first testing.
 Their configured import workflows can rename/move files even though storage
 preparation itself is additive. Start with a copied authorized test item.
 Keep existing torrent payloads and resume state together until an explicit
-migration and rollback plan is tested; this alpha will not adopt them.
+migration and rollback plan is tested; this release will not adopt them.
 
 For manual qBit and Kodi/Jellyfin, disable Usenet, enable torrents, prefer
 `torrents`, and leave photos/music off initially. SABnzbd and paid Usenet accounts
@@ -134,9 +134,9 @@ sudo ./stack --config site.json hardlinks
 The flag is `copyUsingHardlinks`, shown in both apps as **Use Hardlinks instead
 of Copy**. This action preserves other settings and existing media. It does not
 restart or redeploy services, scan/import files, re-enroll accounts, alter VPN
-policy or migrate storage. The standalone `samurai-hardlinks.pyz` release asset
-supports older ZIP installations too; see [INSTALL.md](INSTALL.md) for its
-interface and checksum checks.
+policy or migrate storage. The portable `samurai-setup.sh --hardlinks` action
+supports older ZIP installations too; see [INSTALL.md](INSTALL.md) for the
+command and checksum checks.
 
 Keep the actual configured path. `/opt/samurai` is this project's conventional
 local app-state default. `/srv/samurai-data` is the explicit local-directory fallback;
@@ -159,7 +159,7 @@ plaintext password bundle or reuse the developer's credentials.
 | Needed when | Credential or access | Where it is used |
 | --- | --- | --- |
 | Every deployment | Root console or administrator/sudo access to each new guest; operator SSH public key and matching private key kept on the operator's computer | Guest login/setup. Only the public `.pub` key goes into Proxmox cloud-init. |
-| Proxmox provisioning | Root shell on the intended existing Proxmox node; selected existing bridge/storage; official cloud image plus its published SHA512 | Stage 1 runs on that node. A Proxmox API token is not required by this alpha's local CLI workflow. |
+| Proxmox provisioning | Root shell on the intended existing Proxmox node; selected existing bridge/storage; official cloud image plus its published SHA512 | Stage 1 runs on that node. A Proxmox API token is not required by this release's local CLI workflow. |
 | NAS storage | NAS administrator access to create a dedicated user/export/ACL, plus an allowed media identity | Vendor UI, then the guided guest connection review. NFS normally authorizes hosts and numeric identities rather than taking an SMB password. |
 | Torrents | VPN subscription and protocol-specific service credentials/configuration | Hidden `secret` inputs on the torrent guest. A website password is not necessarily the VPN credential. |
 | Usenet | NNTP server hostname, TLS port, service username/password and connection allowance | Hidden terminal prompts in guided step 3, verified TLS connection test and automatic SAB wizard completion. Existing configured providers are tested and kept. |
@@ -218,7 +218,7 @@ numbers above. You do not need to run both workflows for one installation.
    `stack` and `samurai_stack/` together. Run commands from the source root.
    Follow [host bootstrap](HOST-BOOTSTRAP.md), including the reviewed plan, then
    deliberately configure and persist the selected local/NFS storage mount.
-4. **Create application configuration once.** Run `python3 stack init` in the
+4. **Create application configuration once.** Run `./stack init` in the
    application guest, enter the actual addresses/mount identity/UID/GID, and
    validate. Use role `all` for a compact guest; keep photos, music, dashboard
    and Music Assistant disabled until you intend to enroll them.
@@ -252,11 +252,11 @@ numbers above. You do not need to run both workflows for one installation.
 For every application stage `N`, the sequence is:
 
 ```sh
-sudo python3 stack -c site.json plan N --out plan-N-01.json
+sudo ./stack -c site.json plan N --out plan-N-01.json
 sudo python3 -m json.tool plan-N-01.json
 # Read it. Replace N and REVIEW_HASH with the actual stage and its exact hash.
-sudo python3 stack -c site.json apply N --plan plan-N-01.json --accept-plan REVIEW_HASH
-sudo python3 stack -c site.json access N
+sudo ./stack -c site.json apply N --plan plan-N-01.json --accept-plan REVIEW_HASH
+sudo ./stack -c site.json access N
 # Complete that stage's enrollment, then configure/verify as documented.
 ```
 
@@ -297,10 +297,10 @@ existing persistent mounts; reserved IPs and network policy; GPU passthrough/gue
 transcode tests; first administrator accounts; paid/provider logins; quality,
 language and notification choices; actual device playback; independent backups
 and restore tests. Automatic cloud provisioning, GPU assignment, media migration,
-WAN ingress and ongoing image/database upgrades are outside this alpha.
+WAN ingress and ongoing image/database upgrades are outside this release.
 
 Keep first deployment private on the trusted LAN or an authenticated private
-VPN. The alpha does not publish services to the internet. In particular, the
+VPN. The toolkit does not publish services to the internet. In particular, the
 tested Jellyfin image can serve a known direct stream URL without a session;
 login alone is not a sufficient WAN boundary. Dockge has host-level Docker
 power. See [SECURITY.md](SECURITY.md) before changing exposure.

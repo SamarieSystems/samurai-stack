@@ -1,69 +1,18 @@
 #!/usr/bin/env bash
-# Guided entry point. No fetched shell, disk formatting or automatic upgrades.
+# Public Bash entry point; Python owns the validated, resumable installer.
 set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+samurai_source_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/launcher-common.sh
+source "$samurai_source_root/scripts/launcher-common.sh"
 
 case "${1:-}" in
-  --help|-h)
-    printf '%s\n' 'Samurai Stack guided installer' \
-      'Run ./setup for the menu, or ./setup NUMBER to resume one step.' \
-      '1 Prepare Debian   2 Connect storage   3 Media applications' \
-      '4 VPN and torrents 5 Management        6 Optional extras'
-    printf '%s\n' 'Maintenance: ./setup --hardlinks checks/enables hardlinks without redeploying.'
-    printf '%s\n' 'New blank setup after an intentional app wipe: ./setup --fresh (keeps existing media).'
-    printf '%s\n' 'Recovery: ./setup --recover reports existing containers, mounts and saved configuration paths.' \
-      'Empty setup storage correction: ./setup --config site.json --choose-storage'
-    exit 0 ;;
+  --help|-h) samurai_setup_help ./setup; exit 0 ;;
   --version)
-    sed -n 's/^__version__ = "\([^"]*\)"/\1/p' samurai_stack/__init__.py
+    sed -n 's/^__version__ = "\([^"]*\)"/\1/p' "$samurai_source_root/samurai_stack/__init__.py"
     exit 0 ;;
 esac
 
-if [[ ! -t 0 || ! -t 1 ]]; then
-  printf '%s\n' 'Open an interactive terminal and run ./setup there. Do not pipe a downloaded script into a shell.' >&2
-  exit 1
-fi
-if [[ "${EUID}" -ne 0 ]]; then
-  if command -v sudo >/dev/null 2>&1; then
-    exec sudo -- "$PWD/setup" "$@"
-  fi
-  printf '%s\n' 'Administrator access is needed. Run su -, return to this directory, then run ./setup.' >&2
-  exit 1
-fi
-if [[ -d /etc/pve || "$(uname -s)" != Linux ]]; then
-  printf '%s\n' 'Run ./setup inside the new Debian/Ubuntu VM, not on Proxmox itself.' >&2
-  exit 1
-fi
-if [[ "$(cat /proc/1/comm)" != systemd ]] || \
-   ! systemd-detect-virt --vm 2>/dev/null | grep -Eq '^(kvm|qemu)$'; then
-  printf '%s\n' 'This installer runs inside a KVM/QEMU Linux VM booted with systemd.' >&2
-  exit 1
-fi
-if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' 2>/dev/null; then
-  if [[ ! -e /dev/virtio-ports/org.qemu.guest_agent.0 ]]; then
-    printf '%s\n' 'Preparation is waiting for the QEMU Guest Agent channel. No packages changed.' \
-      'In Proxmox: VM > Options > QEMU Guest Agent > Enable. Shut this VM down cleanly, then Start it.' \
-      'Run ./setup again after startup.' >&2
-    exit 2
-  fi
-  # Only these supported distributions supply the required Python directly.
-  . /etc/os-release
-  case "${ID:-}:${VERSION_ID:-}" in
-    debian:12|debian:13|ubuntu:24.04|ubuntu:26.04) ;;
-    *) printf '%s\n' 'Use Debian 12/13 or Ubuntu 24.04/26.04 for this installer.' >&2; exit 1 ;;
-  esac
-  printf '%s\n' 'Python 3.11+ is missing. Install Python and CA certificates from this VM OS repository?'
-  read -r -p '[y/N] ' setup_python_answer
-  case "$setup_python_answer" in
-    y|Y|yes|YES)
-      apt-get update
-      setup_python_plan="$(apt-get --simulate --no-remove --no-upgrade --no-install-recommends install python3 ca-certificates)"
-      if printf '%s\n' "$setup_python_plan" | grep -Eq '^(Remv[[:space:]]|Inst[[:space:]]+[^[:space:]]+[[:space:]]+\[)'; then
-        printf '%s\n' 'Python prerequisites would upgrade or remove existing packages. No installation was performed; resolve this dependency conflict deliberately.' >&2
-        exit 1
-      fi
-      apt-get --yes --no-remove --no-upgrade --no-install-recommends install python3 ca-certificates ;;
-    *) printf '%s\n' 'No packages changed. Run ./setup again when ready.'; exit 2 ;;
-  esac
-fi
-exec python3 -m samurai_stack.setup "$@"
+samurai_guest_preflight "$samurai_source_root/setup" "$@"
+# Keep the caller's working directory for relative --config and recovery.
+# Isolated Python cannot import a package planted in that working directory.
+exec python3 -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from samurai_stack.setup import main; raise SystemExit(main())' "$samurai_source_root" "$@"

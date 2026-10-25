@@ -3,7 +3,7 @@
 ## An intentional application wipe
 
 Run `./setup --fresh` from the current release, or the verified portable
-`python3 /path/to/samurai-setup.pyz --fresh`, inside the Linux VM. This opens a
+`bash /path/to/samurai-setup.sh --fresh`, inside the Linux VM. This opens a
 new blank phases 1-6 session without an old site, credentials or cached progress.
 Normal setup resumes that new session; `--fresh` again starts another one.
 
@@ -28,7 +28,7 @@ Keep backups of all the required parts. Replacing a source ZIP does not require
 recreating accounts, generating a new UUID or deleting application state.
 
 Run a new source checkout's `./setup` or the verified portable
-`python3 /path/to/samurai-setup.pyz` to resume trusted saved configuration.
+`bash /path/to/samurai-setup.sh` to resume trusted saved configuration.
 When upgrading an older installation that has no canonical copy yet, explicitly
 pass its original private site with `--config /actual/path/to/site.json`.
 Storage verification must pass before it is saved to the canonical registry.

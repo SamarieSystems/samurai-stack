@@ -36,16 +36,24 @@ The [deployment intake](DEPLOYMENT-NIGHT.md) includes hardware inventory command
 resource planning and the existing-machine branch. Leave photos/music off until
 the core download/import/playback path works. No GPU is required.
 
-In the guest, open a root console (`su -` if needed), then run:
+Download `samurai-setup.sh` and `SHA256SUMS` from the
+[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1).
+Copy both files into one directory in the guest. In a terminal in that directory:
 
 ```sh
-apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.7 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
-./setup
+sha256sum --check --ignore-missing SHA256SUMS
+bash ./samurai-setup.sh
 ```
 
-Keep the complete source directory to run its launchers, or use the portable
-release asset below. After storage verification, the authoritative site is
+Require `samurai-setup.sh: OK` from the checksum command before running it.
+The portable Bash installer contains the setup runtime. It checks prerequisites
+and offers reviewed installation of missing Python through the supported OS
+repositories. It does not require Git, pip or a virtual environment. Run the
+same command with `3` appended to resume media setup, for example.
+
+If you already have the complete release source, use `./setup` in its root
+directory instead. From a GitHub source ZIP, use `bash ./setup` if extraction
+did not preserve executable permissions. After storage verification, the authoritative site is
 saved at `/var/lib/samurai-stack/installations/DEPLOYMENT-UUID/site.json`.
 Guided progress lives under `/var/lib/samurai-stack/setup`, independently of
 the checkout. Before storage is verified, a private host-specific draft also
@@ -64,7 +72,7 @@ removed, use the new release's fresh entry point inside the Linux VM:
 With the verified portable release asset, the equivalent is:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --fresh
+bash /path/to/samurai-setup.sh --fresh
 ```
 
 This opens a **new blank menu, phases 1-6**, without requiring or reusing an old
@@ -97,20 +105,20 @@ runtime configuration before opening another wizard. Multiple candidates
 require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
-`samurai-setup.pyz` release asset. Obtain it from the
-[alpha 7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7)
+`samurai-setup.sh` release asset. Obtain it from the
+[0.2.0 release candidate](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
 ```sh
-python3 /path/to/samurai-setup.pyz 3
+bash /path/to/samurai-setup.sh 3
 ```
 
 It contains the setup runtime, so the old extracted source can stay in place.
 For a pre-registration release, explicitly name the original private site:
 
 ```sh
-python3 /path/to/samurai-setup.pyz --config /absolute/path/to/old-source/site.json 3
+bash /path/to/samurai-setup.sh --config /absolute/path/to/old-source/site.json 3
 ```
 
 The saved application and credential locations are reused. Storage is verified
@@ -133,11 +141,11 @@ An older extracted ZIP does not acquire new behavior by itself; run the new
 source or the verified portable asset.
 
 For a Git checkout only, update using the account that owns it. For example,
-the alpha 7 source can be selected with:
+the release candidate source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.1.0-alpha.7
+git checkout v0.2.0-rc.1
 ./setup
 ```
 
@@ -243,6 +251,13 @@ everyday Jellyfin viewer. API keys are discovered or created and saved
 privately. There is no first-user browser wizard or API-key copying step for
 this supported path.
 
+For newly enrolled Sonarr/Radarr accounts, setup offers optional reviewed
+720p/1080p original-audio profiles before wiring. You can decline and keep the
+application defaults. On an existing installation, use menu **p** or
+`./setup --quality-profiles` to review them separately. Existing profiles and
+defaults are preserved; global size-definition changes need a separate review.
+See [Media profiles](MEDIA-PROFILES.md) for the policy and its limits.
+
 For **Seerr**, select **Sign in with Jellyfin** and use the Jellyfin
 administrator or everyday viewer account. These are not separate local Seerr
 passwords. Use the everyday viewer for watching and requesting; the
@@ -292,7 +307,7 @@ you; they are not unfinished account wizards:
 | Choice | Where to make it |
 | --- | --- |
 | Indexer accounts and searches | Add your authorized indexers in Prowlarr and test them. |
-| Quality, language and size preferences | Review the profiles and cutoff rules in Sonarr/Radarr. |
+| Quality, language and size preferences | Opt into the reviewed preset, or review profiles/cutoff rules in Sonarr/Radarr. Global sizes are a separate change. |
 | Subtitle languages and providers | Select them in Bazarr using your own provider accounts. |
 | Usenet subscription and connection allowance | Obtain these from your provider; terminal setup handles the server connection. |
 

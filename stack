@@ -1,7 +1,9 @@
-#!/usr/bin/env python3
-"""Run without installing a Python package: python3 stack --help."""
-import sys
-if sys.version_info < (3, 11):
-    raise SystemExit("Python 3.11 or newer is required")
-from samurai_stack.cli import main
-raise SystemExit(main())
+#!/usr/bin/env bash
+# Advanced Bash entry point; the Python CLI owns plans and operation guards.
+set -euo pipefail
+samurai_source_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if ! python3 -I -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' 2>/dev/null; then
+  printf '%s\n' 'Python 3.11 or newer is required. For guided VM preparation, run ./setup 1.' >&2
+  exit 1
+fi
+exec python3 -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from samurai_stack.cli import main; raise SystemExit(main())' "$samurai_source_root" "$@"

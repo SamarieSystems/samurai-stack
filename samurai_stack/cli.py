@@ -100,6 +100,12 @@ def parser():
     commands.add_parser("inspect", help="Read-only local mount/hardware/runtime inventory")
     hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
     hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
+    profiles = commands.add_parser("profiles", help="Review optional original-audio HD profiles; never reassign existing titles")
+    profiles.add_argument("action", choices=["plan", "apply", "verify"])
+    profiles.add_argument("--global-sizes", action="store_true", help="Explicitly include shared quality size limits in plan/verify")
+    profiles.add_argument("--out", default="profiles-plan.json")
+    profiles.add_argument("--plan")
+    profiles.add_argument("--accept-plan")
     for name in ["plan", "apply", "configure", "verify", "status", "access"]:
         cmd = commands.add_parser(name)
         cmd.add_argument("stage", type=int, choices=sorted(engine.STAGES))
@@ -134,6 +140,20 @@ def main(argv=None):
             elif args.command == "hardlinks":
                 from . import hardlinks
                 result = hardlinks.run(c, apply=args.apply)
+            elif args.command == "profiles":
+                from . import media_profiles
+                if args.action == "plan":
+                    result = media_profiles.plan(c, include_global_sizes=args.global_sizes)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = media_profiles.verify(c, include_global_sizes=args.global_sizes)
+                else:
+                    if args.global_sizes or not args.plan or not args.accept_plan:
+                        raise SafetyError("Profile apply requires --plan and --accept-plan; global size selection belongs in the reviewed plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get("review_hash") != args.accept_plan:
+                        raise SafetyError("Profile reviewed plan hash does not match")
+                    result = media_profiles.apply(c, document)
             elif args.command == "inspect":
                 result = {"platform": sys.platform, "cpus": os.cpu_count(), "role": c.get("role", "all"),
                           "storage": storage.check_mount(c), "gpu_mode": c["hardware"]["acceleration"]}

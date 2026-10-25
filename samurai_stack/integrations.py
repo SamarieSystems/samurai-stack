@@ -373,7 +373,7 @@ def _seerr(r, service, *, readback_only=False):
     if not isinstance(test, dict) or not isinstance(test.get("profiles"), list) or not isinstance(test.get("rootFolders"), list):
         raise RuntimeError("Unexpected Seerr server test response")
     profiles = test.get("profiles", [])
-    preferred = ["HD-1080p", "HD - 1080p", "Any"]
+    preferred = ["Samurai " + r.config["deployment_name"] + " 1080p Original", "HD-1080p", "HD - 1080p", "Any"]
     profile = next((p for title in preferred for p in profiles if p.get("name") == title), None)
     if profile is None and len(profiles) == 1:
         profile = profiles[0]

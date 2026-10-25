@@ -1,7 +1,68 @@
-# Alpha validation
+# Release validation
 
 The dated sections record measured results for each release candidate. They
 do not claim that every provider, device or deployment has been tested.
+
+## 0.2.0 release candidate
+
+October 25, 2026. The core acceptance work runs inside the same owned,
+isolated CPU-only Debian 13 VM, with 2 vCPUs and 3 GiB RAM. Existing household
+services and the friend's installation are outside this test environment.
+
+- The source and portable Bash entry points passed real Linux terminal runs
+  for help/version and identical read-only recovery JSON. Focused tests cover
+  numbered steps, fresh mode, paths with spaces, argument and working-directory
+  preservation, exit status, hostile Python paths, corrupt payloads and private
+  temporary-directory cleanup. Ordinary-user elevation invokes Bash explicitly
+  so a downloaded non-executable script works with the documented command.
+- Actual pinned Sonarr and Radarr APIs accepted the named original-audio HD
+  profiles and custom formats. Retry and readback passed. Profile-only setup
+  preserved every global quality definition; a separately reviewed size apply
+  changed exactly eight definitions per app. Live testing caught and fixed
+  omitted quality-leaf IDs, the minimum upgrade-score validator and omitted
+  nullable size limits. Unit tests bind reviewed plans to host and configuration
+  identity and refuse conflicting existing resources before writes.
+- Both real Starr importers handled an owned three-second H.264/AAC test video.
+  Explicit ManualImport copy mode retained the download and created a library
+  entry with matching device/inode and link count two. Move mode removed the
+  source and retained the same device/inode in the library, with link count one.
+  This verifies application path mapping, media UID access, hardlink imports and
+  same-filesystem moves. It does not prove an indexer's release selection,
+  unattended completed-download handling or commercial SAB delivery/history.
+- The six enabled media applications were stopped consistently and their app
+  state archived using PAX, then restored at the original application path.
+  The original tree and backup were retained. All six applications verified
+  after restore; private credential bytes, modes, owners and nanosecond mtimes
+  matched, along with saved site bytes, managed profile IDs and size policy.
+  Media bytes, inodes and metadata were unchanged. An initial ordinary-tar
+  fixture rounded mtimes; that evidence was retained and the backup test was
+  corrected instead of being counted as a pass.
+- After restore, the existing non-administrator Jellyfin viewer indexed and
+  played that generated sample. HTTP 200 full-stream bytes matched its SHA256;
+  HTTP 206 range bytes matched the requested range. The tokenless direct-stream
+  behavior already described in [security boundaries](SECURITY.md) was
+  reproduced too. This is playback proof, not a claim that every stream route
+  enforces account authentication or that an arbitrary client can transcode.
+- All 704 Linux tests completed successfully as root and as the ordinary
+  test account, with 12 explicit skips in each run. Eleven require Git, which
+  the intentionally offline guest lacks. Root skips the ordinary-user elevation
+  case; the ordinary account skips one root-only permission check. Node-backed
+  tests ran through the owned, isolated test container. The source hygiene audit
+  scanned 111 files with zero findings. Git-dependent builder tests also run in
+  the Windows environment and hosted Linux CI; those results are separate from
+  the offline guest count.
+- MediaBot's separate public installer remains present at its existing stable
+  revision. Its bounded installer suite was rerun in a private environment:
+  32 passed and one Windows symlink case skipped. See the separate
+  [installer audit](MEDIABOT-AUDIT.md); no live bot was started or modified.
+
+The fixture uses owned ext4 bind mounts and generated videos. Official metadata
+lookup used an allowlisted SSH proxy; app proxy settings were restored exactly
+and no general guest WAN route was retained. Provider secrets and personal data
+are excluded from public artifacts. A new commercial VPN profile, actual
+subscriber download/import commissioning and independent-operator readback are
+still separate [0.2 release gates](ROADMAP.md). The local VPN stress results
+below do not establish those provider-specific results.
 
 ## Alpha 7 explicit fresh setup
 

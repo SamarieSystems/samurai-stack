@@ -5,7 +5,7 @@ It creates a new, owned installation around storage and Linux guests you
 deliberately selected. It is not a security boundary against an administrator
 who can edit its files, control Docker or change the underlying machine.
 
-The alpha's measured validation and remaining commissioning work are recorded
+The release's measured validation and remaining commissioning work are recorded
 in [VALIDATION.md](VALIDATION.md) and [ACCEPTANCE.md](ACCEPTANCE.md). A green
 container status is not proof of a safe download, a working backup or a VPN
 kill-switch test.
@@ -56,7 +56,7 @@ item ID is known. Account login alone does not protect every playback URL.
 Keep Jellyfin behind the private LAN/VPN access boundary too. See upstream
 [issue 13984](https://github.com/jellyfin/jellyfin/issues/13984) and the proposed
 [conditional authentication change](https://github.com/jellyfin/jellyfin/pull/16664).
-The alpha does not claim that an unmerged upstream change fixes its deployed image.
+The release does not claim that an unmerged upstream change fixes its deployed image.
 
 | Component | Administrative power |
 | --- | --- |
@@ -123,7 +123,7 @@ executing arbitrary software or establish that it is harmless.
 ## Updates, recovery and release hygiene
 
 The release catalog pins immutable image indexes; local receipts also lock the
-references used by each stage. Retries retain those locks. This alpha does not
+references used by each stage. Retries retain those locks. This release does not
 automatically upgrade images, migrate databases,
 downgrade applications, clear stale locks or delete partial installations.
 Preserve the matching configuration/image locks and working backups before an

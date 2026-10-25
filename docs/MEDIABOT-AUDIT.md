@@ -1,8 +1,55 @@
 # MediaBot installation audit
 
-Checked October 23, 2026, against MediaBot commit `8760e429af` in the
-existing source checkout. MediaBot remains a separate, optional project:
+Refreshed October 25, 2026, against MediaBot commit
+`8760e429af0b55af37f062227c3f56a529b548ab` in the existing source checkout
+and the public default branch. MediaBot remains a separate, optional project:
 <https://github.com/SamarieSystems/mediabot>.
+
+## October 25 installer recheck
+
+The public repository is accessible, its default branch remains `main`, and
+its head matches the local commit above. GitHub's tree contains
+`scripts/setup.py`, `scripts/test_fresh_install.py`, `docs/INSTALL.md`,
+`.env.example`, `compose.yaml`, `LICENSE` and the CI workflow. The installer
+blob is `8bc261c802cbdaa0c984ae9f10abc9fd7096ee91` locally and publicly.
+Its Git mode is `100644`, appropriate for the documented
+`python3 scripts/setup.py` invocation. The latest published stable release
+remains [v2.12.1](https://github.com/SamarieSystems/mediabot/releases/tag/v2.12.1),
+published October 19, 2026.
+
+`python scripts/setup.py --help` passed without reading instance credentials,
+building an image or contacting a provider. The wizard still accepts the new
+operator's URLs, guild IDs and hidden API credentials, creates a mode-600
+`.env` without replacing an existing file, and supports a unique Compose
+project name through `--project-name`. It uses the `.env` in its own checkout;
+there is no alternate `--env-file` CLI flag. Independent households need
+separate checkouts, bot applications and credential sets. Optional AI, Life and
+torrent gateways remain disabled in the generated baseline.
+
+The targeted test command below was rerun in a separate Windows lab virtual
+environment with the application's pinned `aiohttp` and `discord.py` versions,
+their dependencies and Windows IANA timezone data: **33 run, 32 passed, one
+symlink-creation test skipped**. An initial bare-host run lacked `aiohttp`;
+adding dependencies only to the isolated lab environment resolved that import
+failure. The MediaBot checkout and global Python installation were not modified.
+This is unit-test evidence, not a fresh Docker build with its complete pinned
+runtime dependency set.
+
+A bounded value-redacted scan covered six current installation files:
+`scripts/setup.py`, `.env.example`, `compose.yaml`, `Dockerfile`, `README.md`
+and `docs/INSTALL.md`. It found no recognizable credential or literal-secret
+findings; installer secret defaults are empty. The current 185 tracked paths
+contain no `.env`, private-key or database filenames. The broader historical
+scan documented below was performed October 23 and was not repeated in this
+refresh.
+
+`--check` was inspected, not executed: it builds an image and runs a disposable
+networked provider checker, so it is not a read-only local check. `--start` was
+not run. No production service, Discord login, provider request or credential
+was changed. The checkout's pre-existing `README.md`, `docs/INSTALL.md` and
+`docs/STATUS.md` modifications were retained; the clone-link corrections remain
+local. MediaBot's Python installer remains a separate supported interface from
+Samurai Stack's Bash entry points.
 
 ## Install a separate instance
 

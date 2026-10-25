@@ -16,3 +16,14 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python scripts/check-release.py .
       - run: python scripts/validate-compose.py
+      - run: bash -n setup stack scripts/launcher-common.sh scripts/bootstrap-host.sh scripts/release.sh
+      - name: Build and inspect the portable Bash installer
+        run: |
+          python scripts/build-setup-bundle.py --format shell "$RUNNER_TEMP/samurai-setup.sh"
+          bash "$RUNNER_TEMP/samurai-setup.sh" --version
+          bash "$RUNNER_TEMP/samurai-setup.sh" --help
+      - name: Build audited assets for the actual release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/release.sh --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/release-candidate"

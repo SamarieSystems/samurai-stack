@@ -9,7 +9,12 @@ Requirements:
 - Debian 12/13 or Ubuntu 24.04/26.04, amd64 or arm64.
 - A KVM/QEMU VM booted with systemd as PID 1.
 - Python 3.11 or newer and this toolkit copied into the guest.
-- Root through `sudo` for apply, with the Proxmox guest-agent option enabled.
+- A root console, or root through `sudo`, with the Proxmox guest-agent option enabled.
+
+The normal entry point is `./setup 1`, or `bash ./samurai-setup.sh 1` from the
+verified portable release. It handles the prerequisite and plan steps for you.
+The advanced commands below assume Python 3.11+ is already available. If you
+are already root, omit `sudo`; installing sudo is not a prerequisite.
 
 Inspect first. This command performs no package installation or repository
 changes; redirecting its output creates the private plan file you requested:

@@ -5,22 +5,27 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.1.0 alpha 7.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
+**0.2.0 release candidate.** Start with a new supported Linux VM and a dedicated test directory. Recorded disposable-VM checks cover the supported installer paths. Commercial VPN interruption/recovery, provider downloads, playback and backup restoration still require commissioning on the target installation. See [validation](docs/VALIDATION.md) and [the release gates](docs/ROADMAP.md) for the evidence and remaining limits.
 
 ## Start here
 
-Inside a **new Debian 13 KVM/QEMU VM**, open a root console (`su -` if needed):
+Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
+`SHA256SUMS` from the [release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1).
+Copy both files into the same directory in the VM, open a terminal there, then run:
 
 ```sh
-apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.7 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
-./setup
+sha256sum --check --ignore-missing SHA256SUMS
+bash ./samurai-setup.sh
 ```
 
-From a normal user account, the installer requests sudo when available; otherwise use the root console. It does not need `pip`, a Python virtual environment or copied plan hashes. [Quickstart](docs/QUICKSTART.md) covers each screen, media accounts and the remaining provider choices.
+Require `samurai-setup.sh: OK` before running it. The Bash entry point guides
+missing Python prerequisites and guest preparation. Git, `pip` and a Python
+virtual environment are not needed. From a normal account it requests sudo
+when available; otherwise use a root console (`su -`). [Quickstart](docs/QUICKSTART.md)
+covers each screen, media accounts and the remaining provider choices.
 
 **Already wiped the old applications and want to start over?** Run
-`./setup --fresh`, or `python3 /path/to/samurai-setup.pyz --fresh` with the
+`./setup --fresh`, or `bash /path/to/samurai-setup.sh --fresh` with the
 verified portable asset. This opens a blank phases 1-6 wizard with no old site,
 credentials or cached progress. It safely archives eligible stale installer
 state and services; existing appdata or containers block takeover. Existing
@@ -34,17 +39,17 @@ lives under `/var/lib/samurai-stack/setup`. Replacing a ZIP or moving the
 checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
-Already running an older source ZIP? Obtain `samurai-setup.pyz` from the
-[alpha 7 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.7),
+Already running an older source ZIP? Obtain `samurai-setup.sh` from the
+[0.2.0 release candidate assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.0-rc.1),
 check its supplied `SHA256SUMS`, then run as root:
 
 ```sh
-python3 /path/to/samurai-setup.pyz 3
+bash /path/to/samurai-setup.sh 3
 ```
 
 This resumes a uniquely identified saved installation. For an older release
 whose private configuration has not been registered yet, use
-`python3 /path/to/samurai-setup.pyz --config /path/to/existing/site.json 3`.
+`bash /path/to/samurai-setup.sh --config /path/to/existing/site.json 3`.
 No Git checkout or source replacement is needed. Preserve appdata and secrets;
 the saved configuration does not contain their databases or passwords.
 
@@ -64,6 +69,11 @@ If the machine still runs Windows or has important files on its disks, first cho
 Run `./setup 3` to open media directly, or `./setup 4` to return to VPN torrents. These are **guided menu numbers**; the advanced engine has separate stage IDs. The installer handles that mapping.
 
 For an existing installation, `./setup --hardlinks` checks and offers to enable only Sonarr/Radarr's hardlink settings. It does not deploy containers, scan libraries or move media. A standalone repair for older source copies is documented in [Install and repair](docs/INSTALL.md).
+
+New media accounts can opt into reviewed 720p/1080p original-audio profiles
+during setup. Use `./setup --quality-profiles` or menu **p** to review this
+separately. Existing profiles, defaults and media keep their settings. Global
+size-definition changes have a separate review. See [Media profiles](docs/MEDIA-PROFILES.md).
 
 Start with CPU playback. GPU passthrough, guest drivers and a real transcode test remain deliberate hardware work. One compact application VM is the shortest first rollout. Separate VMs need the same installation identity and shared storage configuration; follow [the advanced multi-VM instructions](docs/ADVANCED.md#several-vms-one-installation).
 

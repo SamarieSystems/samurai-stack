@@ -158,6 +158,24 @@ def secrets(name):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_new_seerr_connection_prefers_opted_in_profile_and_existing_choice_survives(self):
+        vendor = VendorModel()
+        c = config()
+        managed = {'id': 42, 'name': 'Samurai ' + c['deployment_name'] + ' 1080p Original'}
+        def transport(method, url, **kwargs):
+            value = vendor(method, url, **kwargs)
+            if urlsplit(url).port == 5055 and urlsplit(url).path.endswith('/test'):
+                value['profiles'].append(managed)
+            return value
+        self.assertTrue(integrations.configure_stage(c, 2, request=transport, secret_resolver=secrets)['ok'])
+        for service in ('sonarr', 'radarr'):
+            row = vendor.collections[('seerr', '/api/v1/settings/' + service)][0]
+            self.assertEqual(42, row['activeProfileId'])
+            row.update(activeProfileId=1, activeProfileName='HD-1080p')
+        self.assertTrue(integrations.configure_stage(c, 2, request=transport, secret_resolver=secrets)['ok'])
+        for service in ('sonarr', 'radarr'):
+            self.assertEqual(1, vendor.collections[('seerr', '/api/v1/settings/' + service)][0]['activeProfileId'])
+
     def test_current_starr_empty_object_connection_test_success_is_supported(self):
         vendor = VendorModel()
         def transport(method, url, **kwargs):

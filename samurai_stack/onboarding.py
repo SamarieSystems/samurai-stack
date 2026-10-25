@@ -161,6 +161,15 @@ def eligible_apps(c):
             and receipt and receipt["apps"].get(name, {}).get("eligible") is True]
 
 
+def pending_apps(c):
+    """Reserved first enrollment only, excluding already verified accounts."""
+    _guard(c)
+    receipt = _load(c)
+    return [name for name in SUPPORTED if name in catalog.stage_endpoints(c, 2)
+            and receipt and receipt['apps'].get(name, {}).get('eligible') is True
+            and receipt['apps'][name].get('state') != 'verified']
+
+
 def check_targets(c, apps, runner=run):
     """Prove account requests address local ports owned by these containers."""
     interfaces = codec.loads(runner(["ip", "-j", "address", "show"]).stdout)

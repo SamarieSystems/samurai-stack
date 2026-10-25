@@ -25,10 +25,13 @@ milestone.
 ## What stays manual
 
 Proxmox installation and hardware allocation, selecting and mounting an existing
-disk, NAS export administration, provider account creation, indexer and quality
-preferences, subtitle languages, and real playback/notification tests require
+disk, NAS export administration, provider account creation, indexer preferences,
+subtitle languages, and real playback/notification tests require
 the operator's choices. Backend automation should remove repetitive typing
 without guessing those choices or claiming that a green container proves them.
+The optional [HD/original-audio profile policy](MEDIA-PROFILES.md) is now
+reviewed in the installer. It does not silently change existing title profiles
+or global size definitions.
 
 If the above gates pass while the supported hardware matrix is still small,
 0.2 should ship as a beta with those limits documented. General-purpose stable

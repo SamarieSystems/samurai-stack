@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -13,7 +14,7 @@ import stat
 import zipfile
 
 
-SCRIPTS = ("scripts/bootstrap-host.sh", "scripts/port_sync.py")
+SCRIPTS = ("scripts/bootstrap-host.sh", "scripts/launcher-common.sh", "scripts/port_sync.py")
 MAX_MEMBER_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_MEMBERS = 256
@@ -36,7 +37,7 @@ MANIFEST_SHA256 = "@MANIFEST_SHA256@"
 MAX_MEMBER_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_MEMBERS = 256
-SCRIPTS = {"scripts/bootstrap-host.sh", "scripts/port_sync.py"}
+SCRIPTS = {"scripts/bootstrap-host.sh", "scripts/launcher-common.sh", "scripts/port_sync.py"}
 REQUIRED = {"LICENSE", "stack", "setup", "samurai_stack/__init__.py",
             "samurai_stack/setup.py", "samurai_stack/cli.py", *SCRIPTS}
 
@@ -203,7 +204,7 @@ def _zip_member(archive, name, value, mode=0o600):
     archive.writestr(info, value)
 
 
-def build(destination, *, root=None):
+def _bundle_bytes(*, root=None):
     root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
     if root.is_symlink() or (root / "samurai_stack").is_symlink():
         raise ValueError("Bundle source directories cannot be symbolic links")
@@ -230,15 +231,100 @@ def build(destination, *, root=None):
         _zip_member(archive, "MANIFEST.json", encoded)
         for name, value in values.items():
             _zip_member(archive, name, value, manifest["files"][name]["mode"])
+    return data.getvalue()
+
+
+def _publish(destination, value, mode):
     destination = Path(destination)
     # O_EXCL refuses existing files, symlinks and broken symlinks alike.
-    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
     with os.fdopen(fd, "wb") as stream:
-        stream.write(data.getbuffer())
+        stream.write(value)
     return destination
+
+
+def build(destination, *, root=None):
+    """Build the Python compatibility asset, retaining its existing API."""
+    return _publish(destination, _bundle_bytes(root=root), 0o600)
+
+
+SHELL_HEADER = b'''#!/usr/bin/env bash
+# Self-contained Samurai Stack installer. No runtime code downloads.
+# Verify the published release SHA256 before running this file.
+set -euo pipefail
+'''
+
+SHELL_RUNNER = r'''
+case "${1:-}" in
+  --help|-h) samurai_setup_help ./samurai-setup.sh; exit 0 ;;
+  --version) printf '%s\n' '@VERSION@'; exit 0 ;;
+esac
+samurai_launcher_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/$(basename -- "${BASH_SOURCE[0]}")"
+samurai_guest_preflight "$samurai_launcher_path" "$@"
+for samurai_tool in base64 sha256sum mktemp wc rm rmdir; do
+  if ! command -v "$samurai_tool" >/dev/null 2>&1; then
+    printf 'Required OS utility is missing: %s. No installation step was started.\n' "$samurai_tool" >&2
+    exit 1
+  fi
+done
+umask 077
+samurai_bundle_dir="$(mktemp -d -- "${TMPDIR:-/tmp}/samurai-setup.XXXXXXXXXX")"
+samurai_payload="$samurai_bundle_dir/setup.pyz"
+samurai_bundle_cleanup() {
+  # Only this invocation's private payload and empty directory are removed.
+  rm -f -- "$samurai_payload" || :
+  rmdir -- "$samurai_bundle_dir" 2>/dev/null || :
+}
+trap samurai_bundle_cleanup EXIT
+base64 --decode > "$samurai_payload" <<'__SAMURAI_SETUP_PAYLOAD__'
+@PAYLOAD@
+__SAMURAI_SETUP_PAYLOAD__
+samurai_payload_size="$(wc -c < "$samurai_payload")"
+samurai_payload_hash="$(sha256sum < "$samurai_payload")"
+if [[ "$samurai_payload_size" -ne @SIZE@ || "${samurai_payload_hash%% *}" != '@SHA256@' ]]; then
+  printf '%s\n' 'Installer integrity check failed. No installation step was started. Download and verify the release again.' >&2
+  exit 1
+fi
+# Replace Bash with Python so signals, terminal input and exit status reach the
+# installer directly. Its finally block removes only this owned payload.
+exec python3 -I -c 'import os, runpy, sys
+archive = sys.argv.pop(1)
+try:
+    runpy.run_path(archive, run_name="__main__")
+finally:
+    try:
+        os.unlink(archive)
+    except OSError:
+        pass
+    try:
+        os.rmdir(os.path.dirname(archive))
+    except OSError:
+        pass
+' "$samurai_payload" "$@"
+'''
+
+
+def build_shell(destination, *, root=None):
+    """Embed the validated Python asset and canonical Bash preflight offline."""
+    payload = _bundle_bytes(root=root)
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        common = archive.read("scripts/launcher-common.sh")
+        version_source = archive.read("samurai_stack/__init__.py")
+    version = re.search(rb'^__version__ = "([A-Za-z0-9.+-]+)"\r?$', version_source, re.MULTILINE)
+    if version is None:
+        raise ValueError("A literal public release version is required")
+    runner = (SHELL_RUNNER.replace("@VERSION@", version.group(1).decode("ascii"))
+              .replace("@SIZE@", str(len(payload)))
+              .replace("@SHA256@", hashlib.sha256(payload).hexdigest())
+              .replace("@PAYLOAD@", base64.encodebytes(payload).decode("ascii").rstrip("\n")))
+    value = SHELL_HEADER + common + b"\n" + runner.encode("ascii")
+    return _publish(destination, value, 0o700)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--format", choices=("pyz", "shell"), default="pyz",
+                        help="shell builds one executable Bash installer; pyz preserves the Python compatibility asset")
     parser.add_argument("destination", type=Path)
-    print(build(parser.parse_args().destination))
+    args = parser.parse_args()
+    print((build_shell if args.format == "shell" else build)(args.destination))

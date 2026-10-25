@@ -76,7 +76,42 @@ disk capacity. Thin provisioning is not treated as free additional capacity.
 
 ## Inspect, plan, apply, verify
 
-The public module operations are:
+Run the Bash advanced entry point from the complete source directory on the
+Proxmox host. It uses a full private site file with a nested `proxmox` section;
+the configuration fragment above alone is not a complete CLI site file.
+For a new foundation configuration:
+
+```sh
+./stack --config foundation-site.json init --example
+sudo ./stack --config foundation-site.json proxmox init
+sudo ./stack --config foundation-site.json proxmox inspect
+sudo ./stack --config foundation-site.json proxmox plan --out proxmox-plan-01.json
+sudo python3 -m json.tool proxmox-plan-01.json
+```
+
+`init --example` creates configuration only. The foundation wizard asks for
+the actual node, image, bridge, storage, SSH public key and guest resources.
+The example application addresses do not configure the Proxmox host. Inside
+the new compact application guest, use `./setup` to choose its real addresses
+and mounted storage before deploying applications. For separate media/torrent
+guests, follow [one shared installation](ADVANCED.md#several-vms-one-installation)
+and preserve its UUID and shared storage identity instead of creating unrelated
+guided configurations. Do not apply the example application values.
+
+Read the complete plan. Replace `REVIEW_HASH` with its exact hash, then apply
+and verify:
+
+```sh
+sudo ./stack --config foundation-site.json proxmox apply --plan proxmox-plan-01.json --accept-plan REVIEW_HASH
+sudo ./stack --config foundation-site.json proxmox verify
+```
+
+Use a root console if sudo is unavailable and omit `sudo` from those commands.
+Use a new plan filename after a failed or changed attempt. Installing Proxmox
+itself remains manual. The guided guest installer intentionally refuses the
+hypervisor; only the separate `proxmox` commands run there.
+
+For Python coordinators, the equivalent module operations are:
 
 ```python
 from samurai_stack import proxmox

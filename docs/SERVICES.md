@@ -111,8 +111,10 @@ Configure uses the application-reported provider schemas and tests proposed
 connections before saving them. Names begin with `Samurai <deployment-name>`.
 Re-running it verifies those saved resources. A conflicting named resource is
 reported instead of overwritten; unrelated resources are not silently adopted.
-Seerr's profile selection uses an existing `HD-1080p`, `HD - 1080p`, or `Any`
-profile, or the sole available profile. If none is unambiguous, select a profile
+For new Seerr connections, profile selection first prefers the optional
+deployment-named `1080p Original` profile when present, then an existing
+`HD-1080p`, `HD - 1080p`, or `Any` profile, or the sole available profile.
+Existing Seerr choices are preserved. If none is unambiguous, select a profile
 in Seerr deliberately. A default Seerr server, its selected root and its profile
 must all pass readback before verification succeeds.
 
