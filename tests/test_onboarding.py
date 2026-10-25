@@ -22,6 +22,15 @@ CREDS = {"admin_username": "stackadmin", "admin_password": "fixture-admin-passwo
 ADMIN_ID, VIEWER_ID = "a" * 32, "b" * 32
 ADMIN_TOKEN, VIEWER_TOKEN, API_TOKEN = "A" * 32, "V" * 32, "K" * 32
 MASKED = "*" * 8
+CORE_APPS = ("jellyfin", "sonarr", "radarr", "prowlarr")
+ALL_APPS = accounts.SUPPORTED
+STAGE_ENDPOINTS = catalog.stage_endpoints
+
+
+def core_endpoints(config, stage):
+    """This stateful vendor models only the original four applications."""
+    endpoints = STAGE_ENDPOINTS(config, stage)
+    return {name: url for name, url in endpoints.items() if name in CORE_APPS} if stage == 2 else endpoints
 
 
 class Vendor:
@@ -158,20 +167,34 @@ class OnboardingTests(unittest.TestCase):
         self.c["features"]["usenet"] = False
         if os.name == "posix" and os.geteuid() != 0:
             self.c["puid"], self.c["pgid"] = os.geteuid(), os.getegid()
+        stack = self.enterContext(ExitStack())
+        stack.enter_context(mock.patch.object(accounts, "SUPPORTED", CORE_APPS))
+        stack.enter_context(mock.patch.object(catalog, "stage_endpoints", side_effect=core_endpoints))
         for name in ("state", "secrets", "stages", "appdata"):
             (self.root / name).mkdir(mode=0o700)
         for name in catalog.stage_endpoints(self.c, 2):
             (self.root / "appdata" / name).mkdir()
         write_json(self.root / ".samurai-install.json", {"deployment_id": self.c["deployment_id"]})
-        stack = self.enterContext(ExitStack())
         stack.enter_context(mock.patch.object(accounts, "_guard"))
         # Fixtures must run as an ordinary CI user. Only UID ownership is
         # synthetic here; real private modes, link counts and symlink guards
         # still execute, and production retains a strict UID-0 predicate.
         stack.enter_context(mock.patch.object(accounts, "_root_owned", return_value=True))
         stack.enter_context(mock.patch.object(engine, "host_identity", return_value="fixture-machine"))
+        # This stateful vendor intentionally has no SQLite files. Model only
+        # the independent passwordless seed proof here; the real DB/WAL and
+        # custom-provider checks execute in test_enroll_jellyfin_existing.
+        stack.enter_context(mock.patch("samurai_stack.enroll_jellyfin_existing.passwordless_seed",
+                                       side_effect=self.passwordless_seed))
         self.no_containers = mock.Mock(return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""))
         self.vendor = Vendor(self.c)
+
+    def passwordless_seed(self, config, startup_name):
+        rows = getattr(self.vendor, "users", [])
+        passwords = getattr(self.vendor, "passwords", {})
+        if len(rows) == 1 and rows[0].get("Name") == startup_name and passwords.get(startup_name) == "":
+            return rows[0]["Id"].replace("-", "").lower()
+        return None
 
     def reserve(self):
         return accounts.reserve_fresh_apps(self.c, runner=self.no_containers)
@@ -192,9 +215,20 @@ class OnboardingTests(unittest.TestCase):
         (self.root / "appdata" / "sonarr" / "config.xml").write_text("legacy")
         receipt = self.reserve()
         self.assertFalse(receipt["apps"]["sonarr"]["eligible"])
-        self.assertFalse(receipt["apps"]["seerr"]["eligible"])
+        self.assertNotIn("seerr", receipt["apps"])
         self.assertTrue(receipt["apps"]["jellyfin"]["eligible"])
         self.assertNotIn("sonarr", accounts.eligible_apps(self.c))
+
+    def test_all_seven_apps_can_reserve_only_empty_managed_directories(self):
+        self.c["features"]["usenet"] = True
+        with mock.patch.object(accounts, "SUPPORTED", ALL_APPS), \
+             mock.patch.object(catalog, "stage_endpoints", STAGE_ENDPOINTS):
+            for app in STAGE_ENDPOINTS(self.c, 2):
+                (self.root / "appdata" / app).mkdir(exist_ok=True)
+            receipt = self.reserve()
+            self.assertEqual(set(ALL_APPS), set(receipt["apps"]))
+            self.assertTrue(all(row["eligible"] for row in receipt["apps"].values()))
+            self.assertEqual(set(ALL_APPS), set(accounts.eligible_apps(self.c)))
 
     def test_existing_compose_or_container_prevents_all_reservations(self):
         for kind in ("compose", "container"):
@@ -218,11 +252,32 @@ class OnboardingTests(unittest.TestCase):
         self.no_containers.side_effect = AssertionError("Do not rescan or re-reserve")
         self.assertEqual(self.reserve(), first)
 
-    def test_legacy_requires_no_credentials_and_never_contacts_application(self):
+    def test_legacy_needs_no_credentials_and_only_inspects_accounts_readonly(self):
+        before_starr = copy.deepcopy(self.vendor.starr)
+        before_passwords = copy.deepcopy(self.vendor.passwords)
         result = self.onboard(None)
-        self.assertFalse(self.vendor.calls)
+        self.assertTrue(self.vendor.calls)
+        self.assertTrue(all(method == "GET" for method, _, _ in self.vendor.calls))
+        self.assertFalse(any(self.config_write(row) for row in self.vendor.calls))
+        self.assertEqual(before_starr, self.vendor.starr)
+        self.assertEqual(before_passwords, self.vendor.passwords)
         self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
         self.assertEqual(result["status"], "pending")
+        self.assertFalse(result["errors"])
+        self.assertEqual({app + ":accounts" for app in CORE_APPS}, {row["name"] for row in result["pending"]})
+
+    def test_configured_legacy_api_accounts_verify_without_credentials_or_writes(self):
+        self.vendor.complete = True
+        for row in self.vendor.starr.values():
+            row.update(username="existing-admin", password=MASKED, authenticationMethod="forms")
+        before = copy.deepcopy(self.vendor.starr)
+        report = self.onboard(None)
+        self.supported_passed(report)
+        self.assertTrue(report["ok"])
+        self.assertFalse(any(self.config_write(row) for row in self.vendor.calls))
+        self.assertTrue(all(method == "GET" for method, _, _ in self.vendor.calls))
+        self.assertEqual(before, self.vendor.starr)
+        self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
 
     def test_fresh_accounts_and_restrictions_verified(self):
         self.reserve()
@@ -262,34 +317,46 @@ class OnboardingTests(unittest.TestCase):
             self.onboard(changed)
         self.assertFalse(self.vendor.calls)
 
-    def test_password_and_username_validation_before_network(self):
+    def test_password_and_username_validation_before_credential_or_account_writes(self):
         self.reserve()
+        before = self.receipt()
         for changes in ({"viewer_username": "STACKADMIN"}, {"viewer_password": CREDS["admin_password"]},
                         {"admin_password": "test-tiny"}, {"admin_password": "fixture-password" + chr(10)},  # release-audit: synthetic - deliberately invalid credential values
                         {"admin_username": "name with space"}):
             with self.subTest(changes=list(changes)):
                 with self.assertRaises(SafetyError):
                     self.onboard({**CREDS, **changes})
-        self.assertFalse(self.vendor.calls)
+        # Public startup/seed inspection may precede validation; none of the
+        # supplied credentials may be used, persisted or sent in a login.
+        self.assertTrue(all(method == "GET" for method, _, _ in self.vendor.calls))
+        self.assertFalse(any(self.config_write(row) for row in self.vendor.calls))
+        self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
+        self.assertEqual(self.receipt(), before)
 
-    def test_initialized_jellyfin_is_not_adopted_or_reset(self):
+    def test_initialized_jellyfin_wrong_credentials_are_not_adopted_or_reset(self):
         self.reserve()
         self.vendor.complete = True
-        self.vendor.users[0].update(Name=CREDS["admin_username"], HasPassword=True)
-        self.vendor.passwords[CREDS["admin_username"]] = CREDS["admin_password"]
-        result = self.onboard()
-        self.assertTrue(any(row["name"] == "jellyfin:accounts" for row in result["pending"]))
-        jellyfin = [row for row in self.vendor.calls if urlsplit(row[1]).port == 8096]
-        self.assertEqual(len(jellyfin), 1)
-        self.assertFalse(any(self.config_write(row) for row in jellyfin))
+        self.vendor.users[0].update(Name="previous-owner", HasPassword=True)
+        self.vendor.passwords = {"previous-owner": "fixture-existing-owner-password"}  # release-audit: synthetic - preserve unrelated initialized owner
+        before_users, before_passwords = copy.deepcopy(self.vendor.users), copy.deepcopy(self.vendor.passwords)
+        with self.assertRaises(SafetyError):
+            self.onboard()
+        self.assertFalse(any(self.config_write(row) for row in self.vendor.calls))
+        self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
+        self.assertEqual(self.vendor.users, before_users)
+        self.assertEqual(self.vendor.passwords, before_passwords)
 
     def test_password_set_during_incomplete_startup_is_not_reset(self):
         self.reserve()
         self.vendor.users[0]["HasPassword"] = True
         self.vendor.passwords["root"] = CREDS["admin_password"]
-        result = self.onboard()
-        self.assertTrue(any(row["name"] == "jellyfin:accounts" for row in result["pending"]))
+        before = copy.deepcopy(self.vendor.passwords)
+        with self.assertRaises(SafetyError):
+            self.onboard()
         self.assertFalse(any(urlsplit(url).path == "/Startup/User" and method == "POST" for method, url, _ in self.vendor.calls))
+        self.assertFalse(any(self.config_write(row) for row in self.vendor.calls))
+        self.assertEqual(self.vendor.passwords, before)
+        self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
 
     def test_obsolete_true_password_flags_and_hidden_public_seed_do_not_block_real_empty_login(self):
         self.reserve()
@@ -307,11 +374,16 @@ class OnboardingTests(unittest.TestCase):
 
     def test_disabling_optional_service_preserves_historical_manual_receipt(self):
         self.c["features"]["usenet"] = True
-        (self.root / "appdata" / "sabnzbd").mkdir()
-        self.reserve()
-        self.c["features"]["usenet"] = False
-        self.assertEqual(set(accounts.eligible_apps(self.c)), set(accounts.SUPPORTED))
-        self.assertIn("sabnzbd", self.receipt()["apps"])
+        with mock.patch.object(accounts, "SUPPORTED", ALL_APPS), \
+             mock.patch.object(catalog, "stage_endpoints", STAGE_ENDPOINTS):
+            for app in STAGE_ENDPOINTS(self.c, 2):
+                (self.root / "appdata" / app).mkdir(exist_ok=True)
+            (self.root / "appdata/sabnzbd/sabnzbd.ini").write_text("existing configuration\n")
+            self.reserve()
+            self.assertFalse(self.receipt()["apps"]["sabnzbd"]["eligible"])
+            self.c["features"]["usenet"] = False
+            self.assertEqual(set(accounts.eligible_apps(self.c)), set(ALL_APPS) - {"sabnzbd"})
+            self.assertIn("sabnzbd", self.receipt()["apps"])
 
     def test_starr_blank_username_alone_does_not_authorize_password_write(self):
         self.reserve()
@@ -425,13 +497,21 @@ class OnboardingTests(unittest.TestCase):
             receipt[field] = original
             write_json(self.root / "state" / "onboarding.json", receipt, replace=True)
 
-    def test_vendor_exception_contents_never_reach_report(self):
+    def test_vendor_exception_contents_never_reach_preflight_error_or_report(self):
         self.reserve()
         def failure(*args, **kwargs):
             raise RuntimeError("SECRET " + CREDS["admin_password"])
         self.vendor = failure
         with mock.patch.object(accounts, "check_targets"):
-            report = accounts.onboarding(self.c, CREDS, request=failure)
+            with self.assertRaises(SafetyError) as error:
+                accounts.onboarding(self.c, CREDS, request=failure)
+            self.assertNotIn(CREDS["admin_password"], str(error.exception))
+            self.assertNotIn("SECRET", str(error.exception))
+            self.assertFalse((self.root / "secrets" / "onboarding_credentials.json").exists())
+            # Also exercise sanitization inside the per-app report loop after
+            # independently classifying this synthetic fresh seed.
+            with mock.patch.object(accounts, "_existing_jellyfin", return_value=False):
+                report = accounts.onboarding(self.c, CREDS, request=failure)
         self.assertEqual(report["status"], "failed")
         self.assertNotIn(CREDS["admin_password"], json.dumps(report))
         self.assertNotIn("SECRET", json.dumps(report))
@@ -474,6 +554,13 @@ class TargetProofTests(unittest.TestCase):
                        "com.docker.compose.project": self.c["deployment_name"] + "-2"}
         self.foreign_labels = self.wrong_port = self.wrong_mount = self.missing_ip = False
         self.checked = []
+        self.extra_mounts = {}
+        self.runtime = {
+            "jellyfin": {"Env": ["JELLYFIN_DATA_DIR=/config", "JELLYFIN_CONFIG_DIR=/config/config"],
+                         "Cmd": None, "Entrypoint": ["/jellyfin/jellyfin"]},
+            "seerr": {"Env": ["NODE_ENV=production"], "WorkingDir": "/app",
+                      "Cmd": ["npm", "start"], "Entrypoint": ["docker-entrypoint.sh"]},
+        }
 
     def runner(self, argv, **kwargs):
         if argv[0] == "ip":
@@ -491,12 +578,15 @@ class TargetProofTests(unittest.TestCase):
             elif ".Ports" in argv[-1]:
                 port = str(catalog.PORTS[service])
                 value = {port + "/tcp": [{"HostIp": "0.0.0.0" if self.wrong_port else self.address, "HostPort": port}]}
+            elif argv[-1] == "{{json .Config}}":
+                value = self.runtime[service]
             else:
-                value = [{"Type": "bind", "Destination": "/config", "Source":
+                value = [{"Type": "bind", "Destination": "/app/config" if service == "seerr" else "/config", "Source":
                           "/foreign" if self.wrong_mount else str(Path(self.c["install_root"]) / "appdata" / service)}]
+                value.extend(self.extra_mounts.get(service, []))
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value), stderr="")
 
-    def test_all_four_services_are_proved_including_jellyfin_and_prowlarr(self):
+    def test_all_supported_services_are_proved_including_jellyfin_and_prowlarr(self):
         with mock.patch.object(engine, "check_docker") as docker:
             accounts.check_targets(self.c, accounts.SUPPORTED, self.runner)
         docker.assert_called_once_with(self.runner)
@@ -509,6 +599,57 @@ class TargetProofTests(unittest.TestCase):
                 with self.assertRaises(SafetyError):
                     accounts.check_targets(self.c, ["jellyfin"], self.runner)
                 setattr(self, field, False)
+
+    def test_custom_database_env_workdir_or_startup_cannot_attest_local_sqlite(self):
+        variants = {
+            "jellyfin": [
+                {"Env": ["JELLYFIN_DATA_DIR=/other", "JELLYFIN_CONFIG_DIR=/config/config"]},
+                {"Env": ["JELLYFIN_DATA_DIR=/config", "JELLYFIN_CONFIG_DIR=/other"]},
+                {"Env": ["JELLYFIN_DATA_DIR=/config"]},
+                {"Cmd": ["--datadir", "/other"]},
+                {"Entrypoint": ["/custom-startup"]},
+            ],
+            "seerr": [
+                {"Env": ["NODE_ENV=production", "DB_TYPE=postgres"]},
+                {"Env": ["NODE_ENV=production", "CONFIG_DIRECTORY=/other"]},
+                {"Env": ["NODE_ENV=test"]}, {"Env": ["NODE_ENV=development"]}, {"Env": []},
+                {"WorkingDir": "/other"}, {"Cmd": ["node", "other.js"]},
+                {"Entrypoint": ["/custom-startup"]},
+            ],
+        }
+        for app, cases in variants.items():
+            original = copy.deepcopy(self.runtime[app])
+            for changes in cases:
+                with self.subTest(app=app, fields=list(changes)), mock.patch.object(engine, "check_docker"):
+                    self.runtime[app] = {**original, **changes}
+                    with self.assertRaisesRegex(SafetyError, "custom account datastore or startup command"):
+                        accounts.check_targets(self.c, [app], self.runner)
+            self.runtime[app] = original
+
+    def test_default_explicit_sqlite_directory_and_unrelated_mount_are_allowed(self):
+        self.runtime["seerr"]["Env"].extend(["DB_TYPE=sqlite", "CONFIG_DIRECTORY=/app/config"])
+        self.extra_mounts["jellyfin"] = [{"Type": "bind", "Destination": "/cache", "Source": "/owned/cache"}]
+        with mock.patch.object(engine, "check_docker"):
+            accounts.check_targets(self.c, ["jellyfin", "seerr"], self.runner)
+
+    def test_ambiguous_or_malformed_datastore_environment_is_refused(self):
+        for app in ("jellyfin", "seerr"):
+            original = copy.deepcopy(self.runtime[app])
+            duplicate = "JELLYFIN_DATA_DIR=/other" if app == "jellyfin" else "NODE_ENV=test"
+            for env in (None, "not-a-list", [None], ["missing-assignment"], original["Env"] + [duplicate]):
+                with self.subTest(app=app, shape=type(env).__name__), mock.patch.object(engine, "check_docker"):
+                    self.runtime[app] = {**original, "Env": env}
+                    with self.assertRaises(SafetyError):
+                        accounts.check_targets(self.c, [app], self.runner)
+            self.runtime[app] = original
+
+    def test_nested_config_mount_cannot_hide_a_different_active_database(self):
+        for app, destination in (("jellyfin", "/config/data"), ("seerr", "/app/config/db")):
+            with self.subTest(app=app), mock.patch.object(engine, "check_docker"):
+                self.extra_mounts[app] = [{"Type": "bind", "Destination": destination, "Source": "/different/database"}]
+                with self.assertRaisesRegex(SafetyError, "Nested application mounts"):
+                    accounts.check_targets(self.c, [app], self.runner)
+            self.extra_mounts[app] = []
 
 
 class SessionTransportTests(unittest.TestCase):

@@ -155,9 +155,9 @@ plaintext password bundle or reuse the developer's credentials.
 | Proxmox provisioning | Root shell on the intended existing Proxmox node; selected existing bridge/storage; official cloud image plus its published SHA512 | Stage 1 runs on that node. A Proxmox API token is not required by this alpha's local CLI workflow. |
 | NAS storage | NAS administrator access to create a dedicated user/export/ACL, plus an allowed media identity | Vendor UI, then the guided guest connection review. NFS normally authorizes hosts and numeric identities rather than taking an SMB password. |
 | Torrents | VPN subscription and protocol-specific service credentials/configuration | Hidden `secret` inputs on the torrent guest. A website password is not necessarily the VPN credential. |
-| Usenet | NNTP server hostname, TLS port, service username/password and connection allowance | SABnzbd's own wizard and connection test. |
+| Usenet | NNTP server hostname, TLS port, service username/password and connection allowance | Hidden terminal prompts in guided step 3, verified TLS connection test and automatic SAB wizard completion. Existing configured providers are tested and kept. |
 | Indexers/subtitles | Chosen provider URL and API key/account, if required | Prowlarr/Bazarr UIs. No commercial account or indexer is supplied. |
-| App enrollment | New distinct administrator logins for the enabled applications | First-run LAN UIs. Jellyfin and Seerr API keys are then imported privately into the toolkit. |
+| App enrollment | One application administrator login and a different everyday Jellyfin/Seerr viewer login; current administrator credentials when retaining an existing Jellyfin account | Guided step 3 hidden prompts enroll all selected media accounts and save API keys privately. Seerr uses Jellyfin sign-in. Existing accounts and policies are preserved. |
 | Monitoring | Chosen email/chat/webhook destination and its required credential | Kuma UI, followed by an actually delivered test alert. |
 | Optional music | Your friend's Soulseek credentials; selected music-provider/player access | `secret soulseek_username`, `secret soulseek_password`, then separate Music Assistant enrollment if enabled. |
 
@@ -204,10 +204,12 @@ numbers above. You do not need to run both workflows for one installation.
 5. **Storage, stage 0.** Plan, read the plan, accept that exact hash, apply and
    verify. Confirm the expected storage and hardlink test, not merely that the
    directory exists.
-6. **Media, stage 2.** Plan/apply, then `access 2`. Create app administrators,
-   finish Jellyfin/Seerr enrollment, add provider/indexer/subtitle credentials
-   and select quality/language profiles. Import the requested keys through
-   `secret`, then run `configure 2` and `verify 2`. Torrents-only is supported:
+6. **Media, stage 2.** Plan/apply, then use `./setup --config site.json 3` for
+   terminal account enrollment, optional NNTP provider connection testing and
+   automatic application wiring. It resumes healthy owned services and saves
+   keys privately. Choose indexers, subtitle providers and quality/language
+   profiles in the apps. `configure 2` and `verify 2` remain available after
+   enrollment. Torrents-only is supported:
    disable Usenet and prefer torrents in configuration; SAB is omitted.
 7. **VPN torrents, stage 3.** Import the selected VPN inputs, plan/apply, obtain
    the generated qBit login privately, configure and verify. Test a legal

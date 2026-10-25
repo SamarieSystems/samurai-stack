@@ -5,9 +5,8 @@ ordinary configuration: a legacy installation, initialized account, or ambiguous
 interrupted write is never a reason to reset a password or edit a database.
 
 Do not run a browser startup wizard concurrently with automated enrollment.
-Pinned Jellyfin 10.11.8 lacks an atomic passwordless-only startup-user write:
-the empty-password login and fresh directory reservation bound this first-run
-operation, but cannot serialize another human's simultaneous browser changes.
+The empty-password login and account-absence proofs bound first-run operations;
+they cannot serialize another human's simultaneous browser changes.
 """
 from __future__ import annotations
 
@@ -29,8 +28,8 @@ from . import catalog, engine
 from .integrations import jellyfin_headers
 from .safety import SafetyError, atomic_write, no_symlinks, private_read, run, validate_config, write_json
 
-SUPPORTED = ("jellyfin", "sonarr", "radarr", "prowlarr")
-MEDIA_APPS = frozenset((*SUPPORTED, "seerr", "bazarr", "sabnzbd"))
+SUPPORTED = ("jellyfin", "sonarr", "radarr", "prowlarr", "bazarr", "sabnzbd", "seerr")
+MEDIA_APPS = frozenset(SUPPORTED)
 CREDENTIAL_FIELDS = ("admin_username", "admin_password", "viewer_username", "viewer_password")
 VIEWER_POLICY = {
     "IsAdministrator": False, "IsDisabled": False,
@@ -193,13 +192,39 @@ def check_targets(c, apps, runner=run):
                 or binding.get("HostIp") != c["bind_address"] or binding.get("HostPort") != port for binding in bindings)):
             raise SafetyError("Account endpoint does not match the owned application's published LAN port")
         mounts = codec.loads(engine.docker(runner, "inspect", ids[0], "--format", "{{json .Mounts}}").stdout)
-        config_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Destination") == "/config"] if isinstance(mounts, list) else []
+        destination = "/app/config" if app == "seerr" else "/config"
+        config_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Destination") == destination] if isinstance(mounts, list) else []
         if (len(config_mounts) != 1 or config_mounts[0].get("Type") != "bind"
                 or config_mounts[0].get("Source") != str(Path(c["install_root"]) / "appdata" / app)):
             raise SafetyError("Account target does not use its reserved application directory")
+        if app in {"jellyfin", "seerr"}:
+            if any(not isinstance(item, dict) or not isinstance(item.get("Destination"), str)
+                   or item["Destination"].startswith(destination + "/") for item in mounts):
+                raise SafetyError("Nested application mounts prevent account datastore attestation")
+            # A stale default SQLite file cannot attest the active account
+            # datastore when a container points at a different directory/DB.
+            runtime = codec.loads(engine.docker(runner, "inspect", ids[0], "--format", "{{json .Config}}").stdout)
+            if not isinstance(runtime, dict) or not isinstance(runtime.get("Env"), list) or any(not isinstance(item, str) or "=" not in item for item in runtime["Env"]):
+                raise SafetyError("Cannot attest the application's active account datastore")
+            selected = {}
+            for item in runtime["Env"]:
+                key, value = item.split("=", 1)
+                if key in {"JELLYFIN_DATA_DIR", "JELLYFIN_CONFIG_DIR", "DB_TYPE", "CONFIG_DIRECTORY", "NODE_ENV"}:
+                    if key in selected:
+                        raise SafetyError("Account datastore environment is ambiguous")
+                    selected[key] = value
+            if app == "jellyfin":
+                if (selected.get("JELLYFIN_DATA_DIR") != "/config" or selected.get("JELLYFIN_CONFIG_DIR") != "/config/config"
+                        or runtime.get("Cmd") not in (None, []) or runtime.get("Entrypoint") != ["/jellyfin/jellyfin"]):
+                    raise SafetyError("Jellyfin uses a custom account datastore or startup command; existing accounts were preserved")
+            elif (selected.get("DB_TYPE", "sqlite") not in {"", "sqlite"}
+                    or selected.get("CONFIG_DIRECTORY", "/app/config") not in {"", "/app/config"}
+                    or selected.get("NODE_ENV") != "production" or runtime.get("WorkingDir") != "/app"
+                    or runtime.get("Cmd") != ["npm", "start"] or runtime.get("Entrypoint") != ["docker-entrypoint.sh"]):
+                raise SafetyError("Seerr uses a custom account datastore or startup command; existing accounts were preserved")
 
 
-def _credentials(c, supplied):
+def _credentials(c, supplied, *, persist=True):
     root, _ = _paths(c)
     path = root / "secrets" / "onboarding_credentials.json"
     saved = _private_json(path) if path.exists() else None
@@ -219,9 +244,11 @@ def _credentials(c, supplied):
     if (value["admin_username"].casefold() == value["viewer_username"].casefold()
             or value["admin_password"] == value["viewer_password"]):
         raise SafetyError("Administrator and viewer accounts must have distinct names and passwords")
+    if c["features"].get("usenet") and not value["admin_password"].strip("*"):
+        raise SafetyError("SABnzbd cannot store an all-asterisk password; choose a different application administrator password")
     if saved is not None and saved != value:
         raise SafetyError("Saved enrollment credentials differ; refusing account rotation or replacement")
-    if saved is None:
+    if saved is None and persist:
         # Publish the complete private pair before the first network operation.
         write_json(path, value)
     return value
@@ -370,6 +397,9 @@ class _Enrollment:
                 initial, _ = self.login_jellyfin(seed["Name"], "", administrator=True)
             except SafetyError:
                 raise _Manual("Jellyfin startup account is not an empty-password seed; no account was changed") from None
+            if (entry.get("claim_seed_id") not in {None, initial["Id"]}
+                    or entry.get("claim_server_id") not in {None, public["Id"]}):
+                raise _Manual("Jellyfin account-absence proof changed; no account was modified")
             self.mark(app, server_id=public["Id"], admin_id=_user_id(initial.get("Id")),
                       seed_name=seed["Name"], admin_intent=True, state="intent")
         admin = admin_headers = None
@@ -517,7 +547,8 @@ class _Enrollment:
         headers = {"X-Api-Key": self.secret_resolver(app + "_api_key")}
         path = prefix + "/config/host"
         current = self.call("GET", app, path, headers=headers)
-        if not isinstance(current, dict):
+        if (not isinstance(current, dict) or not {"username", "password"} <= set(current)
+                or any(current[key] is not None and not isinstance(current[key], str) for key in ("username", "password"))):
             raise _Manual("Starr host settings are invalid; finish enrollment in its browser")
         blank = current.get("username") in {None, ""} and current.get("password") in {None, ""}
         if not entry.get("admin_intent"):
@@ -542,6 +573,40 @@ class _Enrollment:
         self.mark(app, state="verified")
         return "Administrator form login verified; anonymous and incorrect-password access rejected"
 
+    def inspect_existing(self, app):
+        """Verify existing accounts through local API keys without replacing them."""
+        if app == "jellyfin":
+            headers = jellyfin_headers(self.secret_resolver("jellyfin_api_key"))
+            public = self.call("GET", app, "/System/Info/Public")
+            info = self.call("GET", app, "/System/Info", headers=headers)
+            users = self.call("GET", app, "/Users", headers=headers)
+            if (public.get("StartupWizardCompleted", public.get("IsStartupWizardCompleted")) is not True
+                    or not info.get("Id") or info.get("Id") != public.get("Id")
+                    or not isinstance(users, list) or not any(isinstance(user, dict)
+                        and user.get("Policy", {}).get("IsAdministrator") is True for user in users)):
+                raise _Manual("Jellyfin existing administrator/API access is not ready; accounts were preserved")
+            return "Existing Jellyfin administrator API access verified; accounts and passwords preserved"
+        if app in {"sonarr", "radarr", "prowlarr"}:
+            prefix = "/api/v1" if app == "prowlarr" else "/api/v3"
+            headers = {"X-Api-Key": self.secret_resolver(app + "_api_key")}
+            current = self.call("GET", app, prefix + "/config/host", headers=headers)
+            if (not isinstance(current, dict) or not current.get("username") or not current.get("password")
+                    or current.get("authenticationMethod") not in {"forms", "basic"}
+                    or current.get("authenticationRequired") != "enabled"):
+                raise _Manual("Existing Starr UI authentication is incomplete; no password was replaced")
+            if not _denied(self.session_factory(self.endpoints[app]).send("GET", "/"), self.endpoints[app]):
+                raise _Manual("Existing Starr UI unexpectedly allowed anonymous access")
+            return "Existing administrator authentication and API access verified; accounts and passwords preserved"
+        if app == "bazarr":
+            from .enroll_bazarr import inspect_existing
+        elif app == "sabnzbd":
+            from .enroll_sabnzbd import inspect_existing
+        elif app == "seerr":
+            from .enroll_seerr import inspect_existing
+        else:
+            raise SafetyError("Unsupported existing account inspection")
+        return inspect_existing(self)
+
     def starr_login(self, app):
         base, creds = self.endpoints[app], self.credentials
         session = self.session_factory(base)
@@ -565,6 +630,108 @@ def _user_id(value):
     return value
 
 
+def _legacy_seed(operation):
+    """Prove a solitary passwordless startup administrator, not a hidden user list."""
+    public = operation.call("GET", "jellyfin", "/System/Info/Public")
+    if (not isinstance(public, dict) or not public.get("Id")
+            or public.get("StartupWizardCompleted", public.get("IsStartupWizardCompleted")) is not False):
+        return None
+    startup = operation.call("GET", "jellyfin", "/Startup/User")
+    if not isinstance(startup, dict) or not isinstance(startup.get("Name"), str) or not startup["Name"]:
+        return None
+    from .enroll_jellyfin_existing import passwordless_seed
+    local_id = passwordless_seed(operation.c, startup["Name"])
+    if local_id is None:
+        return None
+    try:
+        seed, headers = operation.login_jellyfin(startup["Name"], "", administrator=True)
+    except SafetyError:
+        return None
+    users = operation.call("GET", "jellyfin", "/Users", headers=headers)
+    libraries = operation.call("GET", "jellyfin", "/Library/VirtualFolders", headers=headers)
+    if (not isinstance(users, list) or len(users) != 1 or not isinstance(users[0], dict)
+            or seed["Id"].replace("-", "").lower() != local_id
+            or users[0].get("Id") != seed["Id"] or users[0].get("Name") != startup["Name"]
+            or users[0].get("Policy", {}).get("IsAdministrator") is not True
+            or not isinstance(libraries, list) or libraries):
+        return None
+    return {"claim_seed_id": seed["Id"], "claim_server_id": public["Id"]}
+
+
+def claim_unconfigured(c, *, request=engine.request, session_factory=HttpSession, secret_resolver=None, runner=run):
+    """Upgrade an old source install by proving account absence, never by reset.
+
+    Existing configured accounts remain ineligible for writes. Backend proofs
+    run only against owned local ports/mounts, under the same deployment lock.
+    Unknown schemas and partial credentials stay unchanged and are reported.
+    """
+    from . import enrollment_preflight, enroll_seerr
+    _guard(c)
+    with engine.deployment_lock(c), _lock(c):
+        root, _ = _paths(c)
+        enabled = catalog.stage_endpoints(c, 2)
+        check_targets(c, enabled, runner)
+        receipt = _load(c)
+        if receipt is None:
+            receipt = {"schema_version": 1, "deployment_id": c["deployment_id"],
+                       "host_id": engine.host_identity(), "bind_address": c["bind_address"], "apps": {}}
+        for app in enabled:
+            if app not in receipt["apps"]:
+                receipt["apps"][app] = {"eligible": False, "directory": _identity(root / "appdata" / app),
+                                         "state": "manual", "reason": "Existing accounts are preserved"}
+        _save(c, receipt)
+        operation = _Enrollment(c, None, receipt, request, session_factory, secret_resolver)
+        result = {"claimed": [], "preserved": [], "errors": []}
+        for app in enabled:
+            if receipt["apps"][app].get("eligible") is True:
+                continue
+            try:
+                proof = _legacy_seed(operation) if app == "jellyfin" else (
+                    enroll_seerr.claimable(operation) if app == "seerr" else enrollment_preflight.claimable(operation, app))
+                if proof:
+                    receipt["apps"][app].update(eligible=True, state="reserved", reservation_kind="account-absence",
+                        directory=_identity(root / "appdata" / app), reason="Authenticated backend account-absence proof")
+                    if isinstance(proof, dict):
+                        receipt["apps"][app].update(proof)
+                    _save(c, receipt)
+                    result["claimed"].append(app)
+                else:
+                    result["preserved"].append(app)
+            except Exception:
+                result["errors"].append({"name": app + ":accounts", "error":
+                    "Account absence could not be verified; existing accounts and configuration were preserved"})
+        return result
+
+
+def requires_credentials(c):
+    """Whether setup needs a hidden pair, without attempting any password login."""
+    if eligible_apps(c):
+        return True
+    try:
+        engine.secret_resolver(c)("jellyfin_api_key")
+        return False
+    except (SafetyError, OSError, ValueError):
+        return True
+
+
+def _existing_jellyfin(operation, entry):
+    if entry.get("legacy_connection_verified") or entry.get("eligible") is not True:
+        return True
+    if entry.get("admin_intent"):
+        return False
+    public = operation.call("GET", "jellyfin", "/System/Info/Public")
+    complete = public.get("StartupWizardCompleted", public.get("IsStartupWizardCompleted")) if isinstance(public, dict) else None
+    if complete is True:
+        return True
+    if complete is not False:
+        raise _Manual("Jellyfin startup state is unknown; existing accounts were preserved")
+    startup = operation.call("GET", "jellyfin", "/Startup/User")
+    if not isinstance(startup, dict) or not isinstance(startup.get("Name"), str):
+        raise _Manual("Jellyfin startup account identity is unknown")
+    from .enroll_jellyfin_existing import passwordless_seed
+    return passwordless_seed(operation.c, startup["Name"]) is None
+
+
 def onboarding(c, credentials=None, *, request=engine.request, session_factory=HttpSession, secret_resolver=None, runner=run):
     """Enroll reserved fresh apps and return a public-safe per-app report.
 
@@ -579,13 +746,38 @@ def onboarding(c, credentials=None, *, request=engine.request, session_factory=H
     with engine.deployment_lock(c), _lock(c):
         receipt = _load(c)
         enabled = catalog.stage_endpoints(c, 2)
-        eligible = [name for name in SUPPORTED if receipt and receipt["apps"].get(name, {}).get("eligible") is True]
-        for name in enabled:
-            if name not in eligible:
-                report["pending"].append({"name": name + ":accounts", "action":
-                    "Complete or verify this application's existing browser enrollment; accounts were not changed"})
-        if eligible:
-            check_targets(c, eligible, runner)
+        eligible = [name for name in SUPPORTED if name in enabled
+                    and receipt and receipt["apps"].get(name, {}).get("eligible") is True]
+        check_targets(c, enabled, runner)
+        creds = None
+        operation = None
+        inspection = _Enrollment(c, None, receipt or {}, request, session_factory, secret_resolver)
+        existing_jellyfin = _existing_jellyfin(inspection, (receipt or {}).get("apps", {}).get("jellyfin", {}))
+        if existing_jellyfin and "jellyfin" in eligible:
+            # Preserve the historical reservation for audit, but never use it
+            # as authority to rename/reset an owner initialized by a person.
+            eligible.remove("jellyfin")
+        if eligible or credentials is not None:
+            if receipt is None:
+                raise SafetyError("Run guided account inspection before enrolling an existing installation")
+            if existing_jellyfin and credentials is not None:
+                preview = _credentials(c, credentials, persist=False)
+                probe = _Enrollment(c, preview, receipt, request, session_factory, secret_resolver)
+                # Authenticate an existing administrator before freezing the
+                # common pair or creating any other account. A typo must not
+                # initialize half the installation with the wrong identity.
+                _, headers = probe.login_jellyfin(preview["admin_username"], preview["admin_password"], administrator=True)
+                if "seerr" in eligible:
+                    users = probe.call("GET", "jellyfin", "/Users", headers=headers)
+                    if not isinstance(users, list) or any(not isinstance(user, dict) for user in users):
+                        raise _Manual("Jellyfin existing users could not be verified; no account was changed")
+                    matches = [user for user in users if str(user.get("Name", "")).casefold() == preview["viewer_username"].casefold()]
+                    if len(matches) > 1:
+                        raise _Manual("Jellyfin viewer name is ambiguous; no account was changed")
+                    if matches:
+                        viewer, _ = probe.login_jellyfin(preview["viewer_username"], preview["viewer_password"], administrator=False)
+                        if viewer["Id"] != matches[0].get("Id"):
+                            raise _Manual("Jellyfin viewer identity differs; no account was changed")
             creds = _credentials(c, credentials)
             desired = {name: creds[name] for name in ("admin_username", "viewer_username")}
             if receipt.get("identity") not in (None, desired):
@@ -593,10 +785,46 @@ def onboarding(c, credentials=None, *, request=engine.request, session_factory=H
             receipt["identity"] = desired
             _save(c, receipt)
             operation = _Enrollment(c, creds, receipt, request, session_factory, secret_resolver)
+            if existing_jellyfin:
+                from .enroll_jellyfin_existing import connect
+                try:
+                    connect(operation, need_viewer="seerr" in eligible)
+                except _Manual as error:
+                    report["pending"].append({"name": "jellyfin:accounts", "action": str(error)})
+                    return report
+                except Exception:
+                    report["errors"].append({"name": "jellyfin:accounts", "error":
+                        "Existing Jellyfin login/API connection could not be verified; its accounts were preserved"})
+                    report["status"] = "failed"
+                    return report
+        existing = _Enrollment(c, None, receipt or {}, request, session_factory, secret_resolver)
+        for app in enabled:
+            if app in eligible:
+                continue
+            try:
+                detail = existing.inspect_existing(app)
+                report["checks"].append({"name": app + ":accounts", "status": "passed", "detail": detail})
+            except _Manual as error:
+                report["pending"].append({"name": app + ":accounts", "action": str(error)})
+            except Exception:
+                report["errors"].append({"name": app + ":accounts", "error":
+                    "Existing account/API access could not be verified; no account or password was changed"})
+        if eligible:
             for app in eligible:
                 name = app + ":accounts"
                 try:
-                    detail = operation.jellyfin() if app == "jellyfin" else operation.starr(app)
+                    if app == "jellyfin":
+                        detail = operation.jellyfin()
+                    elif app in {"sonarr", "radarr", "prowlarr"}:
+                        detail = operation.starr(app)
+                    else:
+                        if app == "bazarr":
+                            from .enroll_bazarr import enroll
+                        elif app == "sabnzbd":
+                            from .enroll_sabnzbd import enroll
+                        else:
+                            from .enroll_seerr import enroll
+                        detail = enroll(operation)
                     report["checks"].append({"name": name, "status": "passed", "detail": detail})
                 except _Manual as error:
                     report["pending"].append({"name": name, "action": str(error)})

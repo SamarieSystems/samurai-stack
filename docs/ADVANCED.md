@@ -147,32 +147,32 @@ sudo python3 stack --config site.json access 2
 ```
 
 Use stage 2's new hash. Inspect `compose_preview` for the selected services,
-LAN bindings and data paths. Open the addresses returned by `access` from a
-browser on your private network.
-
-1. Complete initial authentication in Sonarr, Radarr and Prowlarr. Add your
-   own indexers and choose suitable quality profiles.
-2. If Usenet is enabled, configure SABnzbd's Web UI authentication, complete its
-   provider setup and run its server connection test. The installer supplies no
-   paid subscription or provider login.
-3. Create the Jellyfin administrator and an API key. Complete Seerr's initial
-   Jellyfin sign-in against this installation's Jellyfin address.
-4. Configure Bazarr's Web UI authentication, select subtitle languages/providers
-   and obtain its API key. A running frontend does not prove authentication is on.
-
-Import the keys through hidden local prompts:
+LAN bindings and data paths. To enroll accounts and wire the owned running apps
+through hidden terminal prompts, use **guided step 3** after the apply:
 
 ```sh
-sudo python3 stack --config site.json secret jellyfin_api_key
-sudo python3 stack --config site.json secret seerr_api_key
-sudo python3 stack --config site.json secret bazarr_api_key
+./setup --config site.json 3
+```
+
+The guided action resumes healthy services without redeploying them. It covers
+all seven selected media applications, creates/discovers private API keys and
+handles optional NNTP configuration with strict TLS and an actual provider
+connection test. Seerr uses Jellyfin sign-in. It preserves existing accounts;
+unconfigured older apps require explicit account-absence proof. Leave browser
+account wizards alone during this operation.
+
+After enrollment, the lower-level connection commands remain available:
+
+```sh
 sudo python3 stack --config site.json configure 2
 sudo python3 stack --config site.json verify 2
 ```
 
-Generated Starr keys and SABnzbd's key are read from their local configuration
-where supported. Missing credentials produce specific pending tasks. Do not
-put keys in `site.json`, shell arguments, a public issue or a shared transcript.
+Use the printed private LAN URLs to choose indexers, quality profiles and
+subtitle languages/providers. Do not put secrets in `site.json`, shell arguments,
+a public issue or a shared transcript. Separate-host deployments may still need
+private application-key transfer with `stack secret`; a single media guest does
+not require API-key copying for the supported enrollment path.
 
 `configure` creates and tests supported connections. Rerunning it verifies
 the installation's named resources; conflicting existing settings require a

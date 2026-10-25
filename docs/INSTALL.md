@@ -9,6 +9,65 @@ An existing Samurai installation keeps its current `site.json`, installation
 identity, credentials and data paths. Use the focused action below when the task
 is to enable hardlinks in already-running Sonarr and Radarr.
 
+## Media setup and an existing installation
+
+Guided **step 3** enrolls the selected Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr,
+Seerr and SABnzbd accounts, saves private API keys and wires the supported
+application connections. SAB is omitted when Usenet is disabled. New accounts
+use one application administrator login and a separate everyday Jellyfin/Seerr
+viewer, entered through hidden password prompts. **Seerr uses Sign in with
+Jellyfin**, not a separate local password. Leave browser account wizards alone
+while terminal enrollment runs.
+
+When Usenet is enabled, the terminal also requests the NNTP server, TLS port,
+connection allowance and provider service credentials. It performs an actual
+authenticated connection test with certificate verification enabled and
+completes SAB's wizard. Existing configured servers are tested and preserved.
+No browser account wizard or manual API-key paste is required for the supported
+media setup. Choosing indexer accounts, subtitle providers/languages and quality
+profiles remains an operator decision. Those choices and a real
+download/import/playback test still need attention after API wiring passes.
+
+Existing configured accounts are checked without replacing their credentials
+or permissions. An existing Jellyfin or SAB login may be requested to authorize
+the supported connection/provider setup; supply its current credentials.
+Unconfigured apps left by an older alpha are enrolled only after app-specific
+proof that no configured account exists. An incomplete wizard flag is not
+enough. Unknown state pauses for review, not an owner reset.
+
+The shortest update for an existing source ZIP uses the portable
+`samurai-setup.pyz` asset from the
+[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5).
+Verify it against the supplied `SHA256SUMS`, open a root console on the media VM,
+and run from the directory containing the existing private `site.json`:
+
+```sh
+python3 /path/to/samurai-setup.pyz --config site.json 3
+```
+
+No Git installation or source-tree replacement is required. The portable
+installer uses the existing saved paths and credentials. If you are in another
+directory, supply the actual absolute `--config` path instead. Media wiring
+also enables only the two deployment-named Jellyfin movie/TV libraries in Seerr,
+after path/ID verification, while retaining unrelated selections. It does not
+start library scans or request media.
+
+To resume with updated source, preserve the existing private `site.json`, its
+deployment ID, appdata, storage marker and secrets. A source ZIP installation
+does not need Git: extract the new source beside the old directory and run
+from the new source directory, using the actual old configuration path:
+
+```sh
+chmod +x setup stack
+./setup --config /absolute/path/to/old-source/site.json 3
+```
+
+Keep the old directory and configuration. Continue passing the same `--config`
+path on later runs; do not create a new deployment identity or copy appdata into
+the source tree. Updating source does not rotate credentials or move media.
+See [Guided setup](QUICKSTART.md#update-an-existing-installation-including-a-source-zip)
+for the ZIP and Git update paths and the complete step-by-step workflow.
+
 ## Enable hardlinks on an existing installation
 
 Open a terminal on the existing **media VM**, enter the source directory that
@@ -44,7 +103,7 @@ matching the running services.
 
 The standalone release asset, `samurai-hardlinks.pyz`, packages the same
 focused repair for machines using an older source ZIP. Obtain it from the
-[alpha 4 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.4)
+[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5)
 and verify its supplied `SHA256SUMS` checksum.
 Its command interface is:
 

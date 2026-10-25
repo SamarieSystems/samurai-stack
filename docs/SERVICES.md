@@ -16,7 +16,7 @@ configure router forwarding, or create a public reverse proxy.
 
 | Stage | Services | Automatic configuration | Operator input |
 | --- | --- | --- | --- |
-| 2 | Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr; SABnzbd when Usenet is enabled | Library roots; Starr download clients; Prowlarr application links; Bazarr connections; Jellyfin movie/TV libraries; Seerr Starr settings after first-run enrollment | App administrators, NNTP/indexer/subtitle provider accounts, quality/language choices, Jellyfin/Seerr onboarding |
+| 2 | Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr; SABnzbd when Usenet is enabled | Terminal media accounts and private API keys; library roots; Starr download clients; Prowlarr/Bazarr links; Jellyfin movie/TV libraries and their enabled Seerr selections; Seerr Starr settings; verified-TLS NNTP setup | Supply administrator/viewer and provider credentials; choose indexers, subtitle providers/languages and quality preferences; test actual acquisition/playback |
 | 3 | Gluetun, qBittorrent; authenticated port watcher when forwarding is enabled | Namespace boundary; initial authenticated qBit configuration; `tun0`; paths/categories; uncapped bandwidth; Starr clients and release protocol preference | VPN service credentials/configuration; copied Starr API keys on separate hosts; VPN commissioning proofs |
 | 4 | Dockge, Uptime Kuma; optional Homarr with a restricted socket proxy | Persistent local state and LAN bindings | First administrators, monitor URLs, actual notification destination and delivery test |
 | 5 | Immich server, CPU machine learning, Valkey, matched PostgreSQL image | Private DB credential, local DB storage, dedicated upload tree, external originals mounted read-only | Administrator onboarding, independent backup, controlled upload/playback/restore tests |
@@ -69,35 +69,33 @@ because a stale empty mountpoint can already exist.
 
 ## Media enrollment and wiring
 
-After applying stage 2, list its addresses:
+Guided menu step 3 handles media account enrollment and wiring together:
 
 ```sh
-sudo ./stack -c site.json access 2
+./setup --config site.json 3
 ```
 
-1. Complete Sonarr/Radarr/Prowlarr initial administrator authentication in their
-   LAN UIs. Choose sensible quality profiles and connect the indexers you actually
-   use in Prowlarr. The toolkit does not guess paid provider credentials or add
-   public torrent sources.
-2. If using Usenet, open SABnzbd and enter the provider server, account, TLS port
-   and connection count. Run its provider connection test. The toolkit wires
-   SABnzbd paths and movie/TV categories; it does not purchase or enroll an NNTP
-   account. Directory names alone do not prove a working NNTP connection.
-3. Complete Jellyfin's administrator wizard. Do not add writable media mounts.
-   Create an API key in its administrator dashboard and import it privately:
-
-   ```sh
-   sudo ./stack -c site.json secret jellyfin_api_key
-   ```
-
-4. Complete Seerr's initial Jellyfin sign-in against the configured Jellyfin
-   address. Import its API key with `secret seerr_api_key`. This is a vendor
-   account-enrollment step, not an installer-generated shared login.
-5. Run `configure 2`, then `verify 2`. Generated Starr keys are read locally where
-   supported. On a different VM, use the private `secret` command to supply the
-   relevant application keys. API responses and reports never print their values.
-6. In Bazarr, select subtitle languages and providers. The connection wiring
-   does not invent a language preference or imply that a provider login works.
+1. Enter one application administrator login and a separate everyday
+   Jellyfin/Seerr viewer login in the terminal. Password input is hidden. The
+   supported Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, Seerr and optional SAB
+   accounts and API keys are enrolled without browser first-user wizards or
+   key copying. In Seerr, use **Sign in with Jellyfin** for both roles.
+2. Existing configured accounts are inspected and kept. If an existing
+   Jellyfin login is needed, enter its current administrator credentials.
+   Older unconfigured alphas require app-specific account-absence proof before
+   any new enrollment. An incomplete wizard alone is not sufficient.
+3. If using Usenet, enter the NNTP server, TLS port, service credentials and
+   connection allowance. The terminal tests real authentication with certificate
+   verification enabled, saves the provider and completes SAB's wizard.
+   Existing configured providers are tested without replacing them. You still
+   obtain your own subscription; no paid provider account is supplied.
+4. The installer saves and reads back the supported application connections.
+   No API key is printed. On a separate VM, the advanced private `secret`
+   command can transfer the application keys that guest actually requires.
+5. Open the printed LAN URLs to select your quality profiles, indexers and
+   Bazarr subtitle languages/providers. Connection wiring does not invent
+   provider accounts or prove that a subtitle login works. Use the everyday
+   Jellyfin viewer for playback and Seerr requests.
 
 Configure uses the application-reported provider schemas and tests proposed
 connections before saving them. Names begin with `Samurai <deployment-name>`.
@@ -107,6 +105,13 @@ Seerr's profile selection uses an existing `HD-1080p`, `HD - 1080p`, or `Any`
 profile, or the sole available profile. If none is unambiguous, select a profile
 in Seerr deliberately. A default Seerr server, its selected root and its profile
 must all pass readback before verification succeeds.
+
+The two managed Jellyfin libraries must also be enabled in Seerr. Their exact
+deployment names, paths, IDs and movie/TV types are verified before selection.
+Unrelated enabled and disabled selections are preserved. Missing entries use
+Seerr's metadata-only library discovery only when every existing selection can
+be preserved; stale/custom metadata that would be dropped causes a refusal.
+No content scan, library refresh or media request is started by this setup.
 
 Normal Starr imports can rename or move downloads as part of the workflow you
 enable in those applications. This is different from installer migration. The

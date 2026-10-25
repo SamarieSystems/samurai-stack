@@ -20,6 +20,11 @@ class VendorModel:
         self.sab_categories = []
         self.bazarr = {"general": {}, "sonarr": {}, "radarr": {}}
         self.libraries = []
+        self.next_library_id = 1
+        self.jellyfin_info = {"Id": "new-installation", "ServerName": "Fixture Jellyfin"}
+        self.seerr_jellyfin = {"ip": "192.168.1.50", "port": 8096, "useSsl": False,
+            "serverId": "new-installation", "name": "Fixture Jellyfin", "urlBase": "", "libraries": [],
+            "externalHostname": "https://example.invalid"}
         self.prefs = dict(integrations.QBIT_PREFERENCES)
         self.categories = {}
         self.delay_profiles = {s: [{"id": 1, "preferredProtocol": "usenet", "tags": [], "usenetDelay": 0, "torrentDelay": 0}] for s in ["sonarr", "radarr"]}
@@ -80,16 +85,49 @@ class VendorModel:
             return copy.deepcopy(self.bazarr)
         if service == "jellyfin":
             if path == "/System/Info":
-                return {"Id": "new-installation"}
+                return copy.deepcopy(self.jellyfin_info)
             if path == "/Library/VirtualFolders":
                 if method == "POST" and not self.ignore_writes:
-                    self.libraries.append({"Name": parse_qs(uri.query)["name"][0], "Locations": [json["LibraryOptions"]["PathInfos"][0]["Path"]]})
+                    query = parse_qs(uri.query)
+                    self.libraries.append({"Name": query["name"][0], "Locations": [json["LibraryOptions"]["PathInfos"][0]["Path"]],
+                        "ItemId": format(self.next_library_id, "032x"), "CollectionType": query["collectionType"][0]})
+                    self.next_library_id += 1
                 return copy.deepcopy(self.libraries)
+            if path == "/Library/MediaFolders":
+                return {"Items": [{"Id": row["ItemId"], "Name": row["Name"], "Type": "CollectionFolder",
+                    "CollectionType": row["CollectionType"]} for row in self.libraries
+                    if "ItemId" in row and "CollectionType" in row]}
         if service == "seerr":
             if path.endswith("/settings/public"):
                 return {"initialized": True}
             if path.endswith("/settings/jellyfin"):
-                return {"ip": "192.168.1.50", "port": 8096, "useSsl": False, "serverId": "new-installation"}
+                if method != "GET":
+                    raise AssertionError("JellyfinSettings.libraries is read-only in the real OpenAPI request schema")
+                return copy.deepcopy(self.seerr_jellyfin)
+            if path == "/api/v1/settings/jellyfin/library/sync" and method == "POST":
+                if json is not None or form is not None:
+                    raise AssertionError("Library metadata discovery must not request a content scan")
+                if not self.ignore_writes:
+                    previous = {row["id"]: row for row in self.seerr_jellyfin["libraries"]}
+                    rows = []
+                    for library in self.libraries:
+                        if not library.get("ItemId") or library.get("CollectionType") in {"music", "books", "musicvideos", "homevideos", "boxsets"}:
+                            continue
+                        old = previous.get(library["ItemId"], {})
+                        row = {"id": library["ItemId"], "name": library["Name"],
+                            "type": "movie" if library.get("CollectionType") == "movies" else "show", "enabled": old.get("enabled", False)}
+                        if "lastScan" in old:
+                            row["lastScan"] = old["lastScan"]
+                        rows.append(row)
+                    self.seerr_jellyfin["libraries"] = rows
+                return copy.deepcopy(self.seerr_jellyfin["libraries"])
+            if path.startswith("/api/v1/settings/jellyfin/library/") and method == "PUT":
+                if json != {"enabled": True}:
+                    raise AssertionError("Only a target library enabled flag may be changed")
+                target = next(row for row in self.seerr_jellyfin["libraries"] if row["id"] == path.rsplit("/", 1)[-1])
+                if not self.ignore_writes:
+                    target["enabled"] = True
+                return copy.deepcopy(target)
             if path.endswith("/test"):
                 return {"profiles": [{"id": 1, "name": "HD-1080p"}],
                         "rootFolders": [{"path": "/data/library/movies"}, {"path": "/data/library/tv"}]}
@@ -152,10 +190,10 @@ class IntegrationTests(unittest.TestCase):
         c = config()
         first = integrations.configure_stage(c, 2, request=vendor, secret_resolver=secrets)
         self.assertEqual(first["status"], "configured", first)
-        before = copy.deepcopy((vendor.collections, vendor.roots, vendor.libraries, vendor.sab_categories))
+        before = copy.deepcopy((vendor.collections, vendor.roots, vendor.libraries, vendor.sab_categories, vendor.seerr_jellyfin))
         second = integrations.configure_stage(c, 2, request=vendor, secret_resolver=secrets)
         self.assertTrue(second["ok"], second)
-        self.assertEqual(before, (vendor.collections, vendor.roots, vendor.libraries, vendor.sab_categories))
+        self.assertEqual(before, (vendor.collections, vendor.roots, vendor.libraries, vendor.sab_categories, vendor.seerr_jellyfin))
         vendor.calls.clear()
         verified = integrations.verify_stage(c, 2, request=vendor, secret_resolver=secrets)
         self.assertEqual(verified["status"], "verified", verified)
@@ -170,15 +208,19 @@ class IntegrationTests(unittest.TestCase):
         result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
         self.assertTrue(result["ok"], result)
         self.assertIn({"path": "/existing/family-library"}, vendor.roots["radarr"])
-        self.assertFalse(any(m in {"PUT", "DELETE"} for m, *_ in vendor.calls))
+        self.assertFalse(any(method == "DELETE" or method == "PUT" and "/rootfolder" in urlsplit(url).path
+                             for method, url, *_ in vendor.calls))
 
     def test_existing_named_client_conflict_never_overwrites(self):
         vendor = VendorModel()
         vendor.collections[("radarr", "/api/v3/downloadclient")] = [{"name": "Samurai example SABnzbd", "fields": [{"name": "host", "value": "192.168.1.99"}]}]
+        before = copy.deepcopy(vendor.collections[("radarr", "/api/v3/downloadclient")])
         result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
         self.assertEqual(result["status"], "failed")
         self.assertTrue(any(e["name"] == "radarr:sabnzbd" for e in result["errors"]))
-        self.assertFalse(any(m in {"PUT", "DELETE"} for m, *_ in vendor.calls))
+        self.assertEqual(vendor.collections[("radarr", "/api/v3/downloadclient")], before)
+        self.assertFalse(any(method == "DELETE" or method == "PUT" and "/downloadclient" in urlsplit(url).path
+                             for method, url, *_ in vendor.calls))
 
     def test_vendor_secret_echoes_are_not_reported(self):
         vendor = VendorModel()
@@ -225,6 +267,73 @@ class IntegrationTests(unittest.TestCase):
         result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
         self.assertEqual(result["status"], "failed")
         self.assertEqual(len(vendor.collections[("seerr", "/api/v1/settings/radarr")]), 1)
+
+    def test_full_media_wiring_enables_owned_seerr_libraries_and_preserves_other_selections(self):
+        vendor = VendorModel()
+        vendor.libraries = [
+            {"Name": "Samurai example Movies", "Locations": ["/data/library/movies"], "ItemId": "a" * 32, "CollectionType": "movies"},
+            {"Name": "Samurai example TV", "Locations": ["/data/library/tv"], "ItemId": "b" * 32, "CollectionType": "tvshows"},
+        ]
+        custom = [{"id": "c" * 32, "name": "Family movies", "type": "movie", "enabled": True,
+                   "lastScan": 123, "futureSetting": {"keep": True}},
+                  {"id": "stale-unrelated", "name": "Offline manual TV", "type": "show", "enabled": False}]
+        vendor.seerr_jellyfin["libraries"] = copy.deepcopy(custom) + [
+            {"id": row["ItemId"], "name": row["Name"], "type": "movie" if row["CollectionType"] == "movies" else "show", "enabled": False}
+            for row in vendor.libraries]
+        unrelated = {key: copy.deepcopy(value) for key, value in vendor.seerr_jellyfin.items() if key != "libraries"}
+        result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertTrue(result["ok"], result)
+        self.assertIn("seerr:libraries", {row["name"] for row in result["checks"]})
+        expected = custom + [{"id": row["ItemId"], "name": row["Name"], "enabled": True,
+                              "type": "movie" if row["CollectionType"] == "movies" else "show"}
+                             for row in vendor.libraries]
+        self.assertEqual(vendor.seerr_jellyfin["libraries"], expected)
+        self.assertEqual({key: value for key, value in vendor.seerr_jellyfin.items() if key != "libraries"}, unrelated)
+        writes = [(method, urlsplit(url).path, body) for method, url, body, _ in vendor.calls
+                  if method != "GET" and urlsplit(url).path.startswith("/api/v1/settings/jellyfin")]
+        self.assertEqual(writes, [("PUT", "/api/v1/settings/jellyfin/library/" + row["ItemId"], {"enabled": True})
+                                 for row in vendor.libraries])
+        self.assertFalse(any(urlsplit(url).path.endswith("/sync") or urlsplit(url).path == "/Library/Refresh"
+                             for _, url, _, _ in vendor.calls))
+        for method, url, _, _ in vendor.calls:
+            if method == "POST" and urlsplit(url).path == "/Library/VirtualFolders":
+                self.assertEqual(parse_qs(urlsplit(url).query).get("refreshLibrary"), ["false"])
+
+    def test_full_media_discovery_enables_new_owned_rows_without_content_scan(self):
+        vendor = VendorModel()
+        result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertTrue(result["ok"], result)
+        calls = [(method, urlsplit(url).path, body) for method, url, body, _ in vendor.calls
+                 if method != "GET" and urlsplit(url).path.startswith("/api/v1/settings/jellyfin")]
+        self.assertEqual(calls[0], ("POST", "/api/v1/settings/jellyfin/library/sync", None))
+        self.assertEqual(calls[1:], [("PUT", "/api/v1/settings/jellyfin/library/" + row["ItemId"], {"enabled": True})
+                                    for row in vendor.libraries])
+        self.assertFalse(any(urlsplit(url).path in {"/api/v1/settings/jellyfin/sync", "/Library/Refresh"}
+                             for _, url, _, _ in vendor.calls))
+
+    def test_full_media_discovery_refuses_before_dropping_stale_custom_seerr_row(self):
+        vendor = VendorModel()
+        custom = [{"id": "stale-custom", "name": "Manual missing movies", "type": "movie", "enabled": True}]
+        vendor.seerr_jellyfin["libraries"] = copy.deepcopy(custom)
+        result = integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertFalse(result["ok"], result)
+        self.assertTrue(any(row["name"] == "seerr:libraries" for row in result["errors"]), result)
+        self.assertEqual(vendor.seerr_jellyfin["libraries"], custom)
+        self.assertFalse(any(method != "GET" and urlsplit(url).path.startswith("/api/v1/settings/jellyfin")
+                             for method, url, _, _ in vendor.calls))
+
+    def test_full_readonly_media_verify_refuses_disabled_seerr_selection_without_fixing_it(self):
+        vendor = VendorModel()
+        self.assertTrue(integrations.configure_stage(config(), 2, request=vendor, secret_resolver=secrets)["ok"])
+        vendor.seerr_jellyfin["libraries"][0]["enabled"] = False
+        before = copy.deepcopy(vendor.seerr_jellyfin)
+        vendor.calls.clear()
+        result = integrations.verify_stage(config(), 2, request=vendor, secret_resolver=secrets)
+        self.assertFalse(result["ok"], result)
+        self.assertTrue(any(row["name"] == "seerr:libraries" for row in result["errors"]), result)
+        self.assertEqual(vendor.seerr_jellyfin, before)
+        self.assertFalse(any(method in {"PUT", "DELETE", "PATCH"} or method == "POST" and not url.endswith("/test")
+                             for method, url, _, _ in vendor.calls))
 
     def test_custom_sab_download_path_is_preserved(self):
         vendor = VendorModel()

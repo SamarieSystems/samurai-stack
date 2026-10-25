@@ -1,5 +1,6 @@
 """Guided workflow tests retain the actual reviewed engine boundaries."""
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -69,19 +70,48 @@ class GuidedSetupTests(unittest.TestCase):
 
     def test_legacy_account_enrollment_never_prompts_for_credentials(self):
         from samurai_stack import onboarding
-        with mock.patch.object(onboarding, 'eligible_apps', return_value=[]), \
-             mock.patch.object(onboarding, 'onboarding') as enroll:
+        self.account_fixture([], False)
+        result = {'checks': [], 'pending': [], 'errors': []}
+        with mock.patch.object(onboarding, 'onboarding', return_value=result) as enroll:
             self.assertEqual(set(), self.ui.enroll_accounts(self.c))
-        enroll.assert_not_called(); self.read.assert_not_called()
+        enroll.assert_called_once(); self.read.assert_not_called()
+
+    def account_fixture(self, eligible, needed=True):
+        from samurai_stack import onboarding
+        stack = self.enterContext(ExitStack())
+        stack.enter_context(mock.patch.object(onboarding, 'claim_unconfigured', return_value={'claimed': [], 'preserved': [], 'errors': []}))
+        stack.enter_context(mock.patch.object(onboarding, 'eligible_apps', return_value=eligible))
+        stack.enter_context(mock.patch.object(onboarding, 'requires_credentials', return_value=needed))
+
+    def run_cli(self, arguments):
+        """Exercise real CLI exception handling without relaxing production guards."""
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        output = Terminal()
+        original_path = setup.Path
+        def path(value):
+            return mock.Mock(exists=lambda: False) if value == '/etc/pve' else original_path(value)
+        stdin = mock.Mock()
+        stdin.isatty.return_value = True
+        with redirect_stdout(output), redirect_stderr(output), \
+             mock.patch.object(setup.sys, 'platform', 'linux'), \
+             mock.patch.object(setup.sys, 'stdin', stdin), \
+             mock.patch.object(setup.os, 'geteuid', return_value=0, create=True), \
+             mock.patch.object(setup, 'Path', side_effect=path), \
+             mock.patch.object(setup, 'GuidedSetup', return_value=self.ui):
+            code = setup.main(arguments)
+        return code, output.getvalue()
 
     def test_fresh_account_enrollment_uses_hidden_inputs_and_does_not_launch_child(self):
         from samurai_stack import onboarding
         c = dict(self.c, install_root=str(self.root / 'install'))
-        self.read.side_effect = ['yes', 'fixture-admin', 'fixture-viewer']
+        self.read.side_effect = ['fixture-admin', 'fixture-viewer']
+        self.account_fixture(['jellyfin'])
         self.ui.secret_fn = mock.Mock(side_effect=['fixture-admin-password', 'fixture-admin-password',
                                                    'fixture-viewer-password', 'fixture-viewer-password'])
         result = {'checks': [{'name': 'jellyfin:accounts', 'status': 'passed'}],
-                  'pending': [{'name': 'seerr:accounts', 'action': 'Finish browser setup'}], 'errors': []}
+                  'pending': [], 'errors': []}
         with mock.patch.object(onboarding, 'eligible_apps', return_value=['jellyfin']), \
              mock.patch.object(onboarding, 'onboarding', return_value=result) as enroll, \
              mock.patch.object(self.ui, 'invoke') as invoke:
@@ -96,7 +126,8 @@ class GuidedSetupTests(unittest.TestCase):
     def test_interrupted_password_input_does_not_enroll_any_accounts(self):
         from samurai_stack import onboarding
         c = dict(self.c, install_root=str(self.root / 'install'))
-        self.read.side_effect = ['yes', 'fixture-admin']
+        self.read.side_effect = ['fixture-admin']
+        self.account_fixture(['jellyfin'])
         self.ui.secret_fn = mock.Mock(return_value='')
         with mock.patch.object(onboarding, 'eligible_apps', return_value=['jellyfin']), \
              mock.patch.object(onboarding, 'onboarding') as enroll:
@@ -106,6 +137,7 @@ class GuidedSetupTests(unittest.TestCase):
     def test_saved_account_enrollment_resumes_without_password_prompts(self):
         from samurai_stack import onboarding
         c = dict(self.c, install_root=str(self.root / 'install'))
+        self.account_fixture(['jellyfin'])
         secret = engine.secret_path(c, 'onboarding_credentials.json')
         secret.parent.mkdir(parents=True); secret.write_text('{}')
         result = {'checks': [], 'pending': [{'name': 'jellyfin:accounts', 'action': 'Resolve changed account'}], 'errors': []}
@@ -113,6 +145,110 @@ class GuidedSetupTests(unittest.TestCase):
              mock.patch.object(onboarding, 'onboarding', return_value=result) as enroll:
             self.assertIsNone(self.ui.enroll_accounts(c))
         self.assertIsNone(enroll.call_args.args[1]); self.read.assert_not_called()
+
+    def test_media_connects_without_browser_or_api_key_prompts(self):
+        with mock.patch.object(self.ui, 'config', return_value=self.c), \
+             mock.patch.object(self.ui, 'install', return_value=True), \
+             mock.patch.object(self.ui, 'enroll_accounts', return_value={'jellyfin', 'seerr', 'bazarr', 'sabnzbd'}), \
+             mock.patch.object(self.ui, 'usenet_provider', return_value=True), \
+             mock.patch.object(self.ui, 'wire', return_value=True) as wire, \
+             mock.patch.object(self.ui, 'secret') as secret:
+            self.assertTrue(self.ui.media())
+        wire.assert_called_once_with(2); secret.assert_not_called(); self.read.assert_not_called()
+        self.assertNotIn('wizard', '\n'.join(self.messages).lower())
+
+    def test_existing_usenet_provider_is_tested_without_credentials_or_changes(self):
+        from samurai_stack import usenet
+        with mock.patch.object(usenet, 'providers', return_value=[{'host': 'fixture-nntp.example.invalid'}]), \
+             mock.patch.object(usenet, 'verify', return_value={'ok': True, 'results': [{'host': 'fixture-nntp.example.invalid', 'status': 'passed'}]}) as verify, \
+             mock.patch.object(usenet, 'configure') as configure:
+            self.assertTrue(self.ui.usenet_provider(self.c))
+        verify.assert_called_once(); configure.assert_not_called(); self.read.assert_not_called()
+
+    def test_failed_existing_usenet_provider_does_not_get_replaced(self):
+        from samurai_stack import usenet
+        with mock.patch.object(usenet, 'providers', return_value=[{'host': 'fixture-nntp.example.invalid'}]), \
+             mock.patch.object(usenet, 'verify', return_value={'ok': False, 'results': [{'host': 'fixture-nntp.example.invalid', 'status': 'failed'}]}), \
+             mock.patch.object(usenet, 'configure') as configure:
+            self.assertFalse(self.ui.usenet_provider(self.c))
+        configure.assert_not_called(); self.read.assert_not_called()
+
+    def test_cli_tls_failure_pauses_and_saved_provider_retry_can_complete_without_secrets_in_output(self):
+        from samurai_stack import onboarding, usenet
+        c = dict(self.c, install_root=str(self.root / 'install'))
+        write_json(self.ui.config_path, c)
+        private = engine.secret_path(c, 'usenet_provider.json')
+        private.parent.mkdir(parents=True)
+        write_json(private, {'host': 'fixture-nntp.example.invalid', 'port': 563,
+            'username': 'fixture-nntp-user', 'password': 'fixture-nntp-password',  # release-audit: synthetic - saved NNTP retry credential
+            'connections': 8, 'ssl': True})
+        original_site, original_private = self.ui.config_path.read_bytes(), private.read_bytes()
+        self.ui.mark(2, 'verified')
+        self.read.return_value = ''
+        saved = {'host': 'fixture-nntp.example.invalid', 'port': 563, 'safely_editable': True}
+        with mock.patch.object(self.ui, 'config', return_value=c), \
+             mock.patch.object(self.ui, 'install', return_value=True), \
+             mock.patch.object(self.ui, 'enroll_accounts', return_value={'jellyfin', 'seerr', 'sabnzbd'}), \
+             mock.patch.object(self.ui, 'wire', return_value=True) as wire, \
+             mock.patch.object(usenet, 'providers', return_value=[]), \
+             mock.patch.object(usenet, 'saved_provider', return_value=saved), \
+             mock.patch.object(usenet, 'needs_login', return_value=False), \
+             mock.patch.object(usenet, 'configure', side_effect=[
+                 onboarding._Manual('NNTP TLS connection or authentication test failed; existing providers were preserved'),
+                 {'connection_verified': True, 'wizard_complete': True}]) as configure:
+            code, output = self.run_cli(['3', '--config', str(self.ui.config_path)])
+            self.assertEqual(code, 1)
+            self.assertEqual(self.ui.state()['3']['status'], 'paused')
+            wire.assert_not_called()
+            self.assertEqual(self.ui.config_path.read_bytes(), original_site)
+            self.assertEqual(private.read_bytes(), original_private)
+            code, retry_output = self.run_cli(['3', '--config', str(self.ui.config_path)])
+            self.assertEqual(code, 0)
+            self.assertEqual(self.ui.state()['3']['status'], 'verified')
+        self.assertEqual(self.ui.state()['2']['status'], 'verified')
+        self.assertEqual(self.ui.config_path.read_bytes(), original_site)
+        self.assertEqual(private.read_bytes(), original_private)
+        self.assertEqual(configure.call_count, 2)
+        self.assertTrue(all(call.args[1] is None for call in configure.call_args_list))
+        rendered = output + retry_output + '\n'.join(self.messages)
+        self.assertIn('NNTP TLS connection or authentication test failed', rendered)
+        self.assertNotIn('Traceback', rendered)
+        self.assertNotIn('fixture-nntp-password', rendered)
+        self.assertNotIn('fixture-nntp-user', rendered)
+
+    def test_failure_handler_preserves_bad_progress_without_a_secondary_traceback(self):
+        self.ui.mark(2, 'verified')
+        progress = self.ui.state_root / 'progress.json'
+        progress.write_text('invalid saved progress')
+        before = progress.read_bytes()
+        with mock.patch.object(self.ui, 'media') as media:
+            code, output = self.run_cli(['3'])
+        self.assertEqual(code, 1)
+        media.assert_not_called()
+        self.assertEqual(progress.read_bytes(), before)
+        self.assertIn('Saved progress could not be updated', '\n'.join(self.messages))
+        self.assertNotIn('Traceback', output + '\n'.join(self.messages))
+
+    def test_menu_saved_state_error_is_sanitized_without_removing_the_file(self):
+        self.ui.mark(2, 'verified')
+        progress = self.ui.state_root / 'progress.json'
+        progress.write_text('invalid synthetic-private-state')
+        before = progress.read_bytes()
+        code, output = self.run_cli([])
+        self.assertEqual(code, 1)
+        self.assertEqual(progress.read_bytes(), before)
+        self.assertIn('saved state could not be read or updated', output)
+        self.assertNotIn('synthetic-private-state', output)
+        self.assertNotIn('Traceback', output)
+
+    def test_historical_eligible_jellyfin_prompt_explains_existing_credentials(self):
+        from samurai_stack import onboarding
+        self.account_fixture(['jellyfin'])
+        self.read.return_value = ''
+        with mock.patch.object(onboarding, 'onboarding') as enroll:
+            self.assertIsNone(self.ui.enroll_accounts(self.c))
+        enroll.assert_not_called()
+        self.assertIn('enter its EXISTING administrator login', '\n'.join(self.messages))
 
     def test_password_confirmation_and_spaces_are_preserved(self):
         self.ui.secret_fn = mock.Mock(side_effect=['fixture-password', 'different-password',

@@ -248,6 +248,20 @@ def secret_resolver(c):
                         if match:
                             return match.group("key")
             raise SafetyError("Bazarr API key was not found in its generated config/config.yaml; use secret bazarr_api_key to import it privately")
+        if name == "seerr_api_key":
+            from .enroll_seerr import resolve_api_key
+            return resolve_api_key(c)
+        if name == "jellyfin_api_key":
+            # An already-wired Seerr contains its authenticated Jellyfin token.
+            # Reuse it for readback rather than asking for a browser key paste.
+            from .enroll_seerr import _settings
+            try:
+                value = _settings(c).get("jellyfin", {}).get("apiKey")
+            except SafetyError:
+                value = None
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._~-]{16,4096}", value):
+                return value
+            raise SafetyError("Jellyfin needs its existing administrator login in guided setup to connect its API")
         if name in {"sonarr_api_key", "radarr_api_key", "prowlarr_api_key"}:
             app = name.removesuffix("_api_key")
             config = no_symlinks(Path(c["install_root"]) / "appdata" / app / "config.xml")

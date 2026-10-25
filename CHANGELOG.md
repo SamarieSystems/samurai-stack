@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-alpha.5 - 2026-10-25
+
+- Complete guided media account enrollment for Jellyfin, Sonarr, Radarr,
+  Prowlarr, Bazarr, Seerr and optional SABnzbd. Hidden administrator/viewer
+  prompts replace browser first-user wizards and API-key copying on the
+  supported path. Seerr uses the Jellyfin administrator and restricted viewer.
+- Connect the media applications automatically and enable only the two
+  deployment-named, path/ID-verified Jellyfin libraries in Seerr. Preserve
+  unrelated library selections without starting scans or requesting media.
+- Configure an NNTP provider through terminal prompts, verify its TLS
+  certificate and actual authentication, and complete SABnzbd's wizard. Test
+  existing configured providers while preserving their settings and credentials.
+- Resume older unconfigured alphas using app-specific proof that no configured
+  account exists, including read-only active-database checks where needed.
+  Preserve existing owner passwords, account policies and installation identity.
+- Package `samurai-setup.pyz` for existing source ZIP installations. It uses
+  the saved site configuration and application state without requiring Git or
+  overwriting the old source tree. Keep the focused hardlink repair available.
+
 ## 0.1.0-alpha.4 - 2026-10-25
 
 - Enable Sonarr/Radarr `copyUsingHardlinks` during application configuration and

@@ -1,9 +1,10 @@
 # Guided setup
 
 Run `./setup` inside the new Linux guest. Choose a numbered step and answer its
-questions. It shows the changes for review, asks before applying them, and
-explains anything you still need to do in a browser. You do not copy hashes or
-edit JSON to follow this path.
+questions. It shows the changes for review and asks before applying them. Media
+account setup and application wiring happen in the terminal; a browser is for
+using the apps and choosing your providers and preferences. You do not copy
+hashes, paste API keys or edit JSON to follow this path.
 
 This guide uses **guided menu numbers 1 through 6**. The engine's stage IDs are
 different; use [Advanced CLI](ADVANCED.md) for individual plan/apply commands.
@@ -29,7 +30,7 @@ Have these facts ready:
 | Storage | Local Linux filesystem or NAS address and exact dedicated NFS export. Decide the numeric media UID/GID and allowed guest addresses on the NAS. |
 | Downloads | Torrents, Usenet or both; choose which protocol you prefer. |
 | Providers | VPN protocol/configuration, Usenet service credentials if enabled, and your own indexer/subtitle accounts. |
-| First users | Administrator logins you will create in the applications. Do not reuse a developer's credentials. |
+| First users | One media application administrator username/password and a different everyday Jellyfin/Seerr viewer username/password. For an existing Jellyfin owner, have its current login ready. Do not reuse Linux root/SSH credentials. |
 
 The [deployment intake](DEPLOYMENT-NIGHT.md) includes hardware inventory commands,
 resource planning and the existing-machine branch. Leave photos/music off until
@@ -39,29 +40,66 @@ In the guest, open a root console (`su -` if needed), then run:
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.4 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.5 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
-Keep the complete checkout and its private `site.json`. Reopen the menu from
+Keep the complete source directory and its private `site.json`. Reopen the menu from
 this same directory whenever you need to continue. The launcher uses sudo
 when started by a normal account, or explains how to return as root if sudo
-is unavailable. Credentials go into hidden prompts or an application's form.
+is unavailable. Media account and provider passwords go into hidden terminal
+prompts, not command arguments.
 
-### Continuing an alpha 1 or alpha 2 installation
+### Update an existing installation, including a source ZIP
 
-In your existing checkout, using the account that owns it:
+Keep the existing `site.json`, installation/deployment ID, application
+directories, storage marker and private credentials. They identify the running
+installation. Do not run a new configuration wizard, generate a replacement ID
+or delete appdata to update the toolkit.
+
+The shortest update for an existing source ZIP is the portable
+`samurai-setup.pyz` release asset. Obtain it from the
+[alpha 5 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5)
+and verify its supplied `SHA256SUMS`. From a root console in the old source
+directory containing the correct private `site.json`, run:
+
+```sh
+python3 /path/to/samurai-setup.pyz --config site.json 3
+```
+
+It contains the setup runtime, so the old extracted source can stay in place.
+Use the actual absolute `--config` path if you run it from another directory.
+The saved application and credential locations are reused.
+
+A directory extracted from GitHub's source ZIP does not need Git. Extract the
+updated source into a **new directory beside the old one**, leaving the old
+directory intact. In the new directory, point setup at the existing private
+configuration, substituting its actual absolute path:
+
+```sh
+chmod +x setup stack
+./setup --config /absolute/path/to/old-source/site.json 3
+```
+
+Keep using that `--config` path on later runs. There is no need to copy secrets
+or application databases into the new source tree; their saved locations remain
+in the existing configuration. Do not extract a ZIP over appdata or a storage
+mount. Use the source for the release you intend to install; an older extracted
+ZIP does not acquire new setup behavior by itself.
+
+For a Git checkout only, update using the account that owns it. For example,
+the alpha 5 source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.1.0-alpha.4
+git checkout v0.1.0-alpha.5
 ./setup
 ```
 
-Keep the existing `site.json`, private credentials and application directories.
-The new menu resumes them; it does not require a new installation identity or
-app accounts. If Git reports conflicting local changes, preserve and review
-them. Do not use a forced checkout or delete the old installation to update.
+Select the intended release tag rather than assuming this example is the newest
+release. If Git reports conflicting local changes, preserve and review them.
+Do not use a forced checkout. Updating source does not rotate application
+passwords or provider credentials.
 
 ## 1. Prepare this guest
 
@@ -118,52 +156,79 @@ before initializing a second configuration.
 
 ## 3. Set up media
 
-Select **3**. The installer starts the selected media apps and prints their
-actual LAN addresses. For newly reserved application directories, it offers
-one application administrator username/password and a separate everyday
-Jellyfin viewer username/password. Password entry and confirmation are hidden;
-use distinct passwords of at least 12 characters, separate from Linux root/SSH.
-It enrolls Jellyfin, Sonarr, Radarr and Prowlarr, tests real logins, and checks
-that the viewer cannot reach a Jellyfin administrator endpoint. The Jellyfin
-API key is created and saved privately. Exact saved credentials are reused on
-retry; this is not an account-reset mechanism.
+Select **3**. The installer starts the selected media apps and handles their
+accounts, API keys and supported connections. For a new installation, enter one
+application administrator username/password and a separate everyday
+Jellyfin/Seerr viewer username/password. Password entry and confirmation are
+hidden; use distinct passwords of at least 12 characters, separate from Linux
+root/SSH. Exact saved credentials are reused on retry.
+
+The media account setup covers **Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr,
+Seerr and SABnzbd**. Torrent-only installations omit SAB. It verifies account
+access and permissions, including rejecting administrator access for the
+everyday Jellyfin viewer. API keys are discovered or created and saved
+privately. There is no first-user browser wizard or API-key copying step for
+this supported path.
+
+For **Seerr**, select **Sign in with Jellyfin** and use the Jellyfin
+administrator or everyday viewer account. These are not separate local Seerr
+passwords. Use the everyday viewer for watching and requesting; the
+administrator account manages the services.
+
 Do not create accounts in a second browser wizard while automatic enrollment
 is running. The first-run reservation proves initial empty application state,
 but the applications do not offer an atomic lock against a separate operator.
 
-Existing apps without a reservation made before first startup keep their
-accounts and use the browser path. No password is guessed or replaced.
+**Existing installations:** configured accounts are inspected and preserved.
+The installer does not reset passwords, rename an existing owner or replace its
+permissions. If an existing Jellyfin administrator login is needed to finish
+the connection, enter its current credentials when requested. An existing
+viewer must authenticate with its current password; a missing viewer can be
+created with the separate identity you supply. It does not change an existing
+viewer's policy to make a check pass.
 
-Open the printed URLs in a browser on the same private network. Finish the
-remaining tasks, then return to the terminal and continue:
+Older alphas may have started empty applications without reserving them first.
+The updated installer can enroll these only after proving that their owned
+running containers have no configured accounts. This uses app-specific API
+checks and, where required, read-only database checks. An incomplete wizard
+flag alone is not proof. Ambiguous state pauses for review instead of resetting
+an account.
 
-1. **Sonarr, Radarr and Prowlarr:** use the enrolled application administrator,
-   or create/verify the existing login when automation was skipped. Add your
-   indexers in Prowlarr and choose the quality profiles you want.
-2. **SABnzbd, when enabled:** finish its wizard, enable Web UI authentication,
-   enter the NNTP server/service credentials and run the provider connection
-   test. Torrent-only installations omit SAB.
-3. **Jellyfin:** use the everyday viewer for playback. If automatic enrollment
-   was skipped, finish the administrator wizard, create a separate viewer and
-   create an API key in the administrator dashboard.
-4. **Seerr:** finish its initial Jellyfin sign-in against the printed Jellyfin
-   address, then obtain its API key.
-5. **Bazarr:** configure authentication, subtitle languages and your providers.
+**Usenet enabled:** enter the NNTP hostname, TLS port (default `563`), allowed
+connection count (default `8`), service username and hidden service password.
+Use your provider's NNTP credentials, which may differ from its website login.
+The installer tests an actual authenticated connection with TLS certificate
+verification enabled, saves the provider and completes SAB's setup wizard. It
+does not lower certificate verification to make a failing connection work.
+Existing configured servers are connection-tested with their saved credentials
+and kept as they are. If a separate existing SAB administrator login is needed,
+the terminal requests it without changing that account.
 
-The installer reads locally generated application keys where supported and
-asks privately for missing keys. It checks a newly entered API key against its
-application before saving it. Existing valid keys are reused; correcting a
-saved installer copy requires explicit confirmation and keeps a private backup.
-It tests and saves the supported library/client/application connections, then
-reads them back. You do not construct the inter-app URLs and paths yourself.
-This includes enabling and reading back Sonarr/Radarr's `copyUsingHardlinks`.
+The installer then tests, saves and reads back the supported
+library/client/application connections. You do not construct inter-app URLs
+and paths yourself. This includes enabling and reading back Sonarr/Radarr's
+`copyUsingHardlinks` and selecting the two deployment-named Jellyfin movie/TV
+libraries in Seerr after verifying their actual paths and IDs. Unrelated Seerr
+library selections are preserved. Setup does not start a content scan or
+request media; scheduled availability checks can use the enabled libraries.
 An actual download/import inode check remains a separate acceptance test.
+
+Open the printed LAN URLs after account setup. These choices still belong to
+you; they are not unfinished account wizards:
+
+| Choice | Where to make it |
+| --- | --- |
+| Indexer accounts and searches | Add your authorized indexers in Prowlarr and test them. |
+| Quality, language and size preferences | Review the profiles and cutoff rules in Sonarr/Radarr. |
+| Subtitle languages and providers | Select them in Bazarr using your own provider accounts. |
+| Usenet subscription and connection allowance | Obtain these from your provider; terminal setup handles the server connection. |
 
 For only the hardlink setting on an existing install, use
 `./setup --hardlinks`. It does not redeploy the media stage or scan media.
 
-If enrollment is incomplete, the result stays **pending** with the next action.
-Finish that screen and continue, or leave the installer and later run:
+If account or provider verification is incomplete, the result stays **pending**
+or reports the failed check. Follow that specific action, then retry the same
+step. With the existing configuration in this directory:
 
 ```sh
 ./setup 3

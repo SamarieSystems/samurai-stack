@@ -3,6 +3,57 @@
 October 24, 2026. These are measured results from the release candidate, not a
 claim that every supported provider, device or deployment has been tested.
 
+## Alpha 5 media enrollment and provider setup
+
+October 25, 2026. Work used the isolated disposable VM and synthetic test
+accounts. The friend's installation, existing household media services and
+personal data were not modified by these tests.
+
+- A new empty application root completed guided media setup for all seven
+  services: Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, Seerr and SABnzbd. Hidden
+  terminal prompts supplied the administrator/viewer and NNTP credentials;
+  account enrollment, automatic wiring and readback verification passed without
+  browser first-user wizards or API-key copying. Seerr's owner and everyday
+  viewer use Jellyfin sign-in, with no separate local Seerr password.
+- An owned NNTP fixture negotiated TLS 1.3 with strict certificate verification
+  and actual service authentication. SAB's provider setup and wizard completion
+  passed. A second guided run completed with zero input prompts and zero
+  container restarts, reusing the saved account and provider configuration.
+- The real Seerr API enabled the two managed Jellyfin movie/TV libraries after
+  their names, paths, IDs and types were verified. The implementation uses
+  supported metadata discovery and individual enabled-flag updates, without
+  starting a content scan or requesting media. Regression tests check preserved
+  custom selections and refuse discovery that would drop stale custom rows.
+- A separate legacy simulation temporarily hid the original onboarding receipt
+  and shared credential profile, then inspected all seven already-configured
+  apps. All remained ineligible for new account enrollment and passed without
+  prompts. Account IDs, password hashes and permission policies matched before
+  and after. Its 38 read-only HTTP operations included five supported SAB POSTs
+  for read-only `version`/`get_config` operations; there were zero account or
+  application-configuration write attempts. Both original private files were
+  restored with identical bytes, inodes, modes and modification times.
+- The portable `samurai-setup.pyz` ran in an actual Linux root pseudo-terminal
+  from a simulated older source ZIP installation. It used the original site
+  configuration and completed media verification; the old source and site file
+  remained byte-identical. No Git update was required.
+- Linux passed all 507 tests with no skips. Windows ran the same 507-test suite:
+  482 passed and 25 platform/runtime cases were skipped, with no failures.
+  All 16 Compose cases passed the real `docker compose config --quiet` parser;
+  those parser checks started no containers.
+
+The fresh run caught Bazarr accepting TCP connections before its settings API
+was ready. Enrollment now waits for the supported API readiness checks rather
+than treating an open port as completed setup. Live acceptance passed after
+that fix.
+
+This proves the isolated guided media path and its preservation/resume checks.
+It does not verify the friend's machine, a commercial NNTP subscription or
+quota, an actual provider download/import, or a physical playback device.
+Indexer accounts, subtitle providers/languages and quality profiles remain
+operator choices. Complete the intended installation's
+[acceptance checks](ACCEPTANCE.md) before handover; independent operator rollout
+and commercial-provider checks remain part of [the 0.2 gates](ROADMAP.md).
+
 ## Alpha 4 hardlinks and first accounts
 
 October 25, 2026. Tests ran in isolated disposable VM 102. The friend's machine,
@@ -35,9 +86,11 @@ household services, NAS, VPN credentials and personal files were not modified.
 The account tests caught an actual Jellyfin API incompatibility before release:
 the public-user list can hide its initial account, and obsolete password flags
 do not prove a password exists. First enrollment now requires successful
-authentication of the actual empty-password seed. The pinned Jellyfin version
-does not atomically exclude a separate human's simultaneous startup wizard;
-operators must leave that wizard alone during automatic enrollment.
+authentication of the actual empty-password seed. A later version-matched
+source review confirmed that Jellyfin also refuses its startup password write
+once the existing user has a password. The installer still does not coordinate
+all applications with a separate human's browser changes; operators must leave
+their setup wizards alone during automatic enrollment.
 
 Settings readback and a filesystem hardlink probe are separate from a real
 Starr download/import inode test. That complete import, commercial-provider VPN

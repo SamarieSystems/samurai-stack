@@ -9,7 +9,7 @@ that.
 
 | Gate | Evidence needed |
 | --- | --- |
-| First-run accounts | Fresh supported applications enroll from hidden credential prompts. Jellyfin has separate administrator and restricted viewer logins. Actual login and permission checks pass. Existing accounts survive retries and upgrades. Unsupported applications have explicit manual steps. |
+| First-run accounts | All seven selected media apps enroll from hidden terminal credential prompts and wire without browser first-user wizards or API-key copying. Jellyfin has separate administrator and restricted viewer logins; Seerr uses those identities. Actual login and permission checks pass. Existing accounts survive retries and upgrades; unconfigured older apps require account-absence proof. Management/optional apps retain their explicit onboarding steps. |
 | Storage selection | Local disks and NFS show the selected mount, source and capacity. A missing media mount prevents startup. Existing collections remain untouched until a separate reviewed import is requested. |
 | Downloads and imports | Sonarr/Radarr hardlink settings read back as enabled. An actual controlled torrent import preserves device and inode across download and library paths. A Usenet import demonstrates an atomic move on the same filesystem. |
 | VPN | A supported commercial-provider profile passes a controlled tunnel interruption and recovery test. The torrent client remains unable to use the ordinary WAN route. A local test VPN is useful development evidence but does not satisfy this provider check. |

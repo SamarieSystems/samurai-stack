@@ -3,9 +3,9 @@
 [![Checks](https://github.com/SamarieSystems/samurai-stack/actions/workflows/checks.yml/badge.svg)](https://github.com/SamarieSystems/samurai-stack/actions/workflows/checks.yml)
 [GPL-3.0-only](LICENSE) | [Releases](https://github.com/SamarieSystems/samurai-stack/releases) | [Changelog](CHANGELOG.md)
 
-Build a private media server with a guided installer. Pick a step, review what it will change, enter the requested application credentials, then finish the remaining provider and browser settings. You can stop and return to the same step without starting over.
+Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.1.0 alpha 4.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
+**0.1.0 alpha 5.** Start with a new supported Linux VM and a dedicated test directory. This is an alpha with recorded disposable-VM checks, not a promise that an arbitrary existing machine is ready to modify. See [validation](docs/VALIDATION.md) for tested behavior and remaining limits, and [the 0.2 release gates](docs/ROADMAP.md) for the next milestone.
 
 ## Start here
 
@@ -13,13 +13,26 @@ Inside a **new Debian 13 KVM/QEMU VM**, open a root console (`su -` if needed):
 
 ```sh
 apt-get update && apt-get --no-remove --no-upgrade install -y git python3 ca-certificates
-git clone --branch v0.1.0-alpha.4 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
+git clone --branch v0.1.0-alpha.5 https://github.com/SamarieSystems/samurai-stack.git && cd samurai-stack
 ./setup
 ```
 
-From a normal user account, the installer requests sudo when available; otherwise use the root console. It does not need `pip`, a Python virtual environment or copied plan hashes. [Quickstart](docs/QUICKSTART.md) covers each screen, including credentials and the parts you finish in a browser.
+From a normal user account, the installer requests sudo when available; otherwise use the root console. It does not need `pip`, a Python virtual environment or copied plan hashes. [Quickstart](docs/QUICKSTART.md) covers each screen, media accounts and the remaining provider choices.
 
 Already have the release source? Run `./setup` from that directory. An existing `site.json` and stored credentials are reused. Keep them when updating the source.
+
+Already running an older source ZIP? Obtain `samurai-setup.pyz` from the
+[alpha 5 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.1.0-alpha.5),
+check its supplied `SHA256SUMS`, then run this from the existing source directory
+as root:
+
+```sh
+python3 /path/to/samurai-setup.pyz --config site.json 3
+```
+
+This resumes media setup using the original configuration, deployment ID,
+appdata and private credentials. No Git checkout or source replacement is needed.
+Use an absolute `--config` path when running from another directory.
 
 If the machine still runs Windows or has important files on its disks, first choose a safe VM and storage arrangement. This does not install Proxmox or convert the machine in place. Use the [deployment intake](docs/DEPLOYMENT-NIGHT.md) and [Proxmox guide](docs/PROXMOX.md) before changing the physical host.
 
@@ -29,7 +42,7 @@ If the machine still runs Windows or has important files on its disks, first cho
 | --- | --- |
 | **1. Prepare this guest** | Checks the Debian/Ubuntu guest, shows package/repository changes, then installs Docker, Compose, the guest agent and NFS support after confirmation. |
 | **2. Connect storage** | Guides local storage or a dedicated NFS export, reviews a new persistent guest mount when needed, then verifies the media identity and prepares the data tree. |
-| **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls fresh Jellyfin/Starr administrator accounts and a separate Jellyfin viewer, guides remaining browser settings, enables and verifies hardlinks, and connects the apps. |
+| **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls administrator and separate everyday viewer access, saves private API keys, enables hardlinks, selects the owned Jellyfin libraries in Seerr and connects the apps. Usenet setup tests verified TLS and NNTP authentication in the terminal. |
 | **4. Set up VPN torrents** | qBittorrent behind Gluetun, protocol-specific hidden credential prompts, normal magnet entry and application connections. |
 | **5. Set up management** | Dockge and Uptime Kuma, with optional Homarr. Account creation and a delivered notification still need your input. |
 | **6. Add photos or music** | Choose Immich or Navidrome/slskd, with optional Music Assistant. Add these when you can finish their account, backup or playback checks. |
@@ -43,7 +56,7 @@ Start with CPU playback. GPU passthrough, guest drivers and a real transcode tes
 ## What you still provide
 
 - A supported Linux VM, a reserved LAN address and a deliberate storage choice. NAS exports, users and access rules are created in the NAS interface.
-- One application administrator login and a separate everyday Jellyfin viewer login, entered with hidden password confirmation. Only applications reserved before their first start are enrolled automatically. Existing accounts are never reset. Bazarr, Seerr, management and optional applications still have explicit browser steps.
+- One application administrator login and a separate everyday Jellyfin/Seerr viewer login, entered with hidden password confirmation. Seerr uses **Sign in with Jellyfin**. Existing accounts are preserved; older unconfigured apps require explicit account-absence proof before enrollment. Management and optional applications retain their separate onboarding checks.
 - Your own VPN, Usenet, indexer, subtitle and optional music-provider credentials. Hidden prompts and private files keep secrets out of command arguments and plans.
 - Quality/language choices, actual player tests, notification delivery and independent backups. A green container cannot prove those worked.
 

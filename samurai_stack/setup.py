@@ -256,6 +256,7 @@ class GuidedSetup:
             self.say('  ' + item.get('name', 'Application') + ': ' + item.get('error', 'Connection check failed.'))
 
     def wire(self, stage):
+        retries = 0
         while True:
             code, result = self.invoke(['configure', str(stage)], 'Connecting applications and checking saved settings...')
             manual_pending = code == 2 and stage in {4, 6} and result.get('status') == 'pending'
@@ -266,6 +267,14 @@ class GuidedSetup:
                     return True
                 result = proof
             self.report(result)
+            if stage == 2:
+                if code == 1 and retries < 2:
+                    retries += 1
+                    self.say('An application connection is not ready yet. Rechecking saved state automatically...')
+                    time.sleep(retries)
+                    continue
+                self.say('Progress and diagnostics saved. Run ./setup 3 to resume; application accounts and media were retained.')
+                return False
             if not self.yes('After fixing the items above, check again?', False):
                 self.say('Progress saved. Select this step again to continue; no reinstall is needed.')
                 return False
@@ -338,20 +347,23 @@ class GuidedSetup:
 
     def enroll_accounts(self, c):
         from . import onboarding
+        self.say('Checking existing accounts and proving which applications still have no credentials...')
+        claimed = onboarding.claim_unconfigured(c)
+        if claimed['errors']:
+            self.report(claimed)
+            return None
         eligible = onboarding.eligible_apps(c)
-        if not eligible:
-            self.say('Existing application accounts are preserved. Finish any remaining first-run screens below; setup will not reset them.')
-            return set()
         saved = engine.secret_path(c, 'onboarding_credentials.json')
         credentials = None
-        if saved.exists():
+        needed = onboarding.requires_credentials(c)
+        if needed and saved.exists():
             self.say('Checking the saved application administrator and viewer accounts. Passwords will not be replaced.')
-        else:
-            self.say('Set one application administrator login for Jellyfin, Sonarr, Radarr and Prowlarr, plus a separate everyday Jellyfin viewer.')
-            self.say('These are application accounts. Use new passwords, separate from the Linux root or SSH login.')
+        elif needed:
+            self.say('Set one application administrator login for the media apps, plus a separate everyday Jellyfin/Seerr viewer.')
+            self.say('These are application accounts, separate from the Linux root or SSH login.')
+            self.say('If Jellyfin already has an account, enter its EXISTING administrator login. Choose a new login only for a fresh server.')
+            self.say('For an existing everyday viewer, use its current password; otherwise choose a new, separate viewer login.')
             self.say('Leave their browser setup wizards alone until this automatic enrollment finishes; do not create the same accounts in parallel.')
-            if not self.yes('Create and verify these fresh application accounts now?', True):
-                return set()
             credentials = {}
             for role in ('admin', 'viewer'):
                 label = 'Administrator' if role == 'admin' else 'Everyday viewer'
@@ -373,13 +385,83 @@ class GuidedSetup:
         verified = {item['name'].split(':')[0] for item in result['checks'] if item.get('status') == 'passed'}
         for app in sorted(verified):
             self.say('  ' + APP_NAMES.get(app, app) + ': accounts and access checks passed.')
-        unresolved = {'pending': [item for item in result['pending'] if item['name'].split(':')[0] in eligible],
-                      'errors': result['errors']}
+        unresolved = {'pending': result['pending'], 'errors': result['errors']}
         if unresolved['pending'] or unresolved['errors']:
             self.report(unresolved)
             self.say('Account setup paused. The private credentials and application state were retained for retry.')
             return None
         return verified
+
+    def private_input(self, label):
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            try:
+                return (self.secret_fn or getpass.getpass)(label + ' (hidden, Enter to pause): ') or None
+            except getpass.GetPassWarning:
+                raise SafetyError('Hidden input needs an interactive terminal. No credential was saved.') from None
+
+    def usenet_provider(self, c):
+        if not c['features'].get('usenet'):
+            return True
+        from . import usenet
+        providers = usenet.providers(c)
+        if providers:
+            self.say('Testing the existing Usenet servers with their saved credentials. Settings will be kept.')
+            report = usenet.verify(c)
+            for item in report['results']:
+                self.say('  ' + item['host'] + ': ' + item['status'])
+            if not report['ok']:
+                self.say('Usenet connection verification failed. Existing servers and credentials were retained; rerun step 3 after checking the provider.')
+            return report['ok']
+        provider = None
+        saved = usenet.saved_provider(c)
+        replace_unverified = False
+        if saved and saved['safely_editable']:
+            self.say('Saved, unverified NNTP input: ' + saved['host'] + ':' + str(saved['port']) + '.')
+            while True:
+                choice = self.read('Enter to retry saved details, edit to correct a typo, or q to pause: ').strip().lower()
+                if choice in {'', 'edit', 'q'}:
+                    break
+                self.say('Press Enter, type edit, or type q.')
+            if choice == 'q':
+                return False
+            replace_unverified = choice == 'edit'
+        if not saved or replace_unverified:
+            self.say('Enter your Usenet provider NNTP service details. The installer will configure SAB and test the connection.')
+            self.say('TLS certificate verification stays enabled. Use the NNTP service password, which may differ from your website password.')
+            host = self.read('NNTP server hostname, or Enter to pause: ').strip()
+            if not host:
+                return False
+            while True:
+                port = self.read('NNTP TLS port [563]: ').strip() or '563'
+                connections = self.read('Maximum NNTP connections [8]: ').strip() or '8'
+                if port.isascii() and port.isdigit() and 1 <= int(port) <= 65535 and connections.isascii() and connections.isdigit() and 1 <= int(connections) <= 100:
+                    break
+                self.say('Use a port from 1 to 65535 and a connection count from 1 to 100.')
+            username = self.read('NNTP service username, or Enter to pause: ').strip()
+            if not username:
+                return False
+            password = self.private_input('NNTP service password')
+            if password is None:
+                return False
+            provider = {'host': host, 'port': int(port), 'username': username, 'password': password,
+                        'connections': int(connections), 'ssl': True}
+        credentials = None
+        if usenet.needs_login(c):
+            self.say('SAB already has its own login. Enter it once to finish the provider setup; the account will not be changed.')
+            username = self.read('Existing SAB administrator username, or Enter to pause: ').strip()
+            if not username:
+                return False
+            password = self.private_input('Existing SAB administrator password')
+            if password is None:
+                return False
+            credentials = {'admin_username': username, 'admin_password': password}
+        self.say('Testing NNTP authentication, saving the provider and verifying SAB setup...')
+        result = usenet.configure(c, provider, credentials=credentials, replace_unverified=replace_unverified)
+        if result.get('connection_verified') is not True or result.get('wizard_complete') is not True:
+            raise SafetyError('Usenet setup did not confirm both the saved connection and wizard completion')
+        self.say('Usenet provider authentication passed. SAB is configured and its setup wizard is complete.')
+        return True
 
     def media(self):
         c = self.config()
@@ -388,28 +470,12 @@ class GuidedSetup:
         enrolled = self.enroll_accounts(c)
         if enrolled is None:
             return False
-        self.say('\nOpen these addresses from a browser on your LAN:')
-        self.endpoints(c, 2)
-        remaining = [APP_NAMES[name] for name in ('sonarr', 'radarr', 'prowlarr', 'bazarr') if name not in enrolled]
-        if remaining:
-            self.say('1. Create/verify administrator logins in ' + ', '.join(remaining) + '.')
-        if 'jellyfin' not in enrolled:
-            self.say('2. Finish the Jellyfin administrator wizard; create an API key in Dashboard > API Keys.')
-        else:
-            self.say('2. Jellyfin administrator, everyday viewer and API key are ready. Use the viewer for playback.')
-        self.say('3. Finish Seerr onboarding against that Jellyfin address; its API key is in Settings > General.')
-        self.say('4. Choose your quality profiles, indexers and subtitle languages/providers.')
-        if c['features'].get('usenet'):
-            self.say('5. In SABnzbd, enter the NNTP account and test its provider connection.')
-        if not self.yes('Ready to connect the applications? You can come back later.', True):
+        if not self.usenet_provider(c):
             return False
-        for name, instruction in [
-            ('jellyfin_api_key', 'Paste the Jellyfin API key from Dashboard > API Keys.'),
-            ('seerr_api_key', 'Paste the Seerr API key from Settings > General.'),
-            ('bazarr_api_key', 'The Bazarr key was not readable locally. Copy its API key from Settings > General.'),
-        ]:
-            if not self.secret(c, name, instruction):
-                return False
+        self.say('\nYour media application addresses:')
+        self.endpoints(c, 2)
+        self.say('Accounts and API keys are ready. Seerr uses Jellyfin sign-in; use the everyday viewer for watching and requesting.')
+        self.say('Connecting the media applications automatically...')
         return self.wire(2)
 
     def torrents(self):
@@ -628,7 +694,10 @@ class GuidedSetup:
     def _failure(self, number, exc):
         self.say('Paused: ' + (str(exc) if isinstance(exc, SafetyError) else 'A prerequisite or local operation failed.'))
         self.say('Existing application data was retained. Select the same step to retry.')
-        self.mark(number, 'paused')
+        try:
+            self.mark(number, 'paused')
+        except (SafetyError, OSError, ValueError, RuntimeError):
+            self.say('Saved progress could not be updated. Keep the original site file and .setup-state directory for review; no old progress file was removed.')
 
 
 def main(argv=None):
@@ -646,8 +715,8 @@ def main(argv=None):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print('Use an interactive terminal for guided setup. No changes were made.', file=sys.stderr)
         return 1
-    ui = GuidedSetup(Path(__file__).resolve().parent.parent, args.config)
     try:
+        ui = GuidedSetup(Path(__file__).resolve().parent.parent, args.config)
         if args.hardlinks:
             return 0 if ui.hardlinks() else 2
         if args.step:
@@ -660,6 +729,11 @@ def main(argv=None):
     except (EOFError, KeyboardInterrupt):
         print('\nPaused. Existing data and progress were kept. Run ./setup again to continue.')
         return 130
+    except (SafetyError, OSError, ValueError, RuntimeError) as exc:
+        print('Paused: ' + (str(exc) if isinstance(exc, SafetyError) else
+            'A local prerequisite or saved state could not be read or updated.'), file=sys.stderr)
+        print('Keep the original site file and private .setup-state directory for review, then rerun the same setup step.', file=sys.stderr)
+        return 1
 
 
 if __name__ == '__main__':

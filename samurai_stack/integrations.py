@@ -478,6 +478,8 @@ def _run(config, stage, request, secret_resolver, write):
         r.step("bazarr:starr", lambda: _bazarr(r))
         r.step("jellyfin:libraries", lambda: _jellyfin(r))
         r.step("seerr:jellyfin", lambda: _seerr_jellyfin(r))
+        from .seerr_libraries import configure as configure_libraries, verify as verify_libraries
+        r.step("seerr:libraries", lambda: (configure_libraries if r.write else verify_libraries)(r))
         for service in ["radarr", "sonarr"]:
             r.step("seerr:" + service, lambda s=service: _seerr(r, s))
     elif stage == 3 and config.get("features", {}).get("torrents", True):
