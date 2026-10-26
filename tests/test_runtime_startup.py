@@ -42,7 +42,11 @@ class StartupTests(unittest.TestCase):
                 'systems.samarie.stage': '3', 'com.docker.compose.project': 'house-torrents',
                 'com.docker.compose.service': name}, 'running': True, 'status': 'running',
                 'health': 'healthy' if name == 'gluetun' else None,
-                'network': 'bridge' if name == 'gluetun' else 'container:' + 'a' * 64})
+                'network': 'bridge' if name == 'gluetun' else 'container:' + 'a' * 64,
+                'configured_ports': {'8081/tcp': [{'HostIp': self.c['bind_address'], 'HostPort': '8081'}]} if name == 'gluetun' else None,
+                'published_ports': {'8081/tcp': [{'HostIp': self.c['bind_address'], 'HostPort': '8081'}]} if name == 'gluetun' else {},
+                'networks': {'house-torrents_default': {'NetworkID': 'c' * 64, 'EndpointID': 'd' * 64}}
+                            if name == 'gluetun' else {}})
         self.calls, self.now = [], 0
 
     def runner(self, argv, **kwargs):
@@ -112,6 +116,23 @@ class StartupTests(unittest.TestCase):
         self.rows[1]['network'] = 'bridge'
         with self.assertRaisesRegex(ValueError, 'namespace'):
             self.wait()
+
+    def test_healthy_container_with_missing_actual_port_bindings_never_claims_ready(self):
+        self.rows[0]['published_ports'] = {}
+        self.assertFalse(self.wait())
+        self.assertEqual(self.now, 120)
+
+    def test_healthy_container_with_detached_network_or_empty_endpoint_never_claims_ready(self):
+        for damaged in ({}, {'house-torrents_default': {'NetworkID': 'c' * 64, 'EndpointID': ''}}):
+            self.rows[0]['networks'] = damaged
+            self.now = 0
+            with self.subTest(damaged=damaged):
+                self.assertFalse(self.wait())
+                self.assertEqual(self.now, 120)
+
+    def test_changed_or_extra_actual_host_port_is_not_the_configured_publication(self):
+        self.rows[0]['published_ports']['8081/tcp'][0]['HostIp'] = '0.0.0.0'
+        self.assertFalse(self.wait())
 
     def test_missing_expected_service_stays_pending_and_never_expands_the_inventory(self):
         self.rows = self.rows[:1]

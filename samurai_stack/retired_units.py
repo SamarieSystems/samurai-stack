@@ -101,6 +101,9 @@ def _generated(c, stage, text):
         if '=' not in line or section not in allowed:
             raise SafetyError('The obsolete service unit has unrecognized directives; it was retained.')
         key, value = line.split('=', 1)
+        if section == 'Service' and key == 'ExecStart' and value == expected['ExecStart'].replace(
+                ' up --no-color ', ' up --no-color --force-recreate '):
+            value = expected['ExecStart']  # Current guarded restart policy, same owned recipe.
         if (section, key) in keys:
             raise SafetyError('The obsolete service unit has duplicate directives; it was retained.')
         keys.add((section, key))

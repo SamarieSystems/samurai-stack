@@ -504,6 +504,8 @@ class ObsoleteUnitIntegrationTests(unittest.TestCase):
                 required = str(root) if stage == 4 else self.c["storage"]["data_root"] + " " + str(root)
                 self.assertEqual(required, unit["Unit"]["RequiresMountsFor"])
                 self.assertTrue(unit["Service"]["ExecStop"].endswith(" stop --timeout 45"))
+                self.assertTrue(unit["Service"]["ExecStart"].endswith(
+                    " up --no-color --force-recreate --abort-on-container-failure --pull never"))
                 self.assertEqual(runner.call_args.kwargs, {"timeout": 200})
 
     def test_foreign_unit_is_archived_before_runtime_files_are_overwritten(self):

@@ -95,7 +95,11 @@ If an apply fails, inspect `install_root/state/stage-N.json`, the stage Compose 
 Current generated units retry failures every fifteen seconds through their
 storage and LAN preflight checks. A VPN stage also waits for its default route.
 A bounded startup-completion check requires the expected owned containers to
-be running and healthy where health checks exist, preventing an alive but hung
+be running and healthy where health checks exist, with their actual published
+ports and network attachments present. A configured port without a working
+Docker publication does not pass. Whole-stack starts recreate containers from
+the same pinned recipe and retained bind data to recover damaged network
+namespaces; no volume deletion or media reset is performed. This prevents an alive but hung
 Compose supervisor from claiming startup success. This is a startup check, not
 continuous application monitoring. Docker restart jobs propagate to the stack
 units; an explicit `systemctl stop` of a stack unit stays stopped.

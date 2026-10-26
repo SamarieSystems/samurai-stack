@@ -14,7 +14,8 @@ MAX_BYTES = 2 * 1024 * 1024
 INSPECT = ('{"id":{{json .Id}},"labels":{{json .Config.Labels}},'
            '"running":{{json .State.Running}},"status":{{json .State.Status}},'
            '"health":{{if index .State "Health"}}{{json (index .State "Health").Status}}{{else}}null{{end}},'
-           '"network":{{json .HostConfig.NetworkMode}}}')
+           '"network":{{json .HostConfig.NetworkMode}},"configured_ports":{{json .HostConfig.PortBindings}},'
+           '"published_ports":{{json .NetworkSettings.Ports}},"networks":{{json .NetworkSettings.Networks}}}')
 
 
 def _owner(info):
@@ -73,6 +74,45 @@ def _call(runner, arguments, remaining):
     return result.stdout
 
 
+def _bindings(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or len(value) > 128:
+        raise ValueError('startup port inventory is invalid')
+    result = {}
+    for port, bindings in value.items():
+        if not isinstance(port, str) or not re.fullmatch(r'[0-9]{1,5}/(?:tcp|udp)', port):
+            raise ValueError('startup port inventory is invalid')
+        if bindings is None:
+            continue  # Exposed container port without a host publication.
+        if not isinstance(bindings, list) or not 1 <= len(bindings) <= 16:
+            raise ValueError('startup port bindings are invalid')
+        chosen = []
+        for row in bindings:
+            if (not isinstance(row, dict) or set(row) != {'HostIp', 'HostPort'}
+                    or not isinstance(row['HostIp'], str) or not isinstance(row['HostPort'], str)
+                    or not row['HostPort'].isdigit() or not 1 <= int(row['HostPort']) <= 65535):
+                raise ValueError('startup port binding is invalid')
+            chosen.append((row['HostIp'], row['HostPort']))
+        if len(chosen) != len(set(chosen)):
+            raise ValueError('startup port binding is ambiguous')
+        result[port] = sorted(chosen)
+    return result
+
+
+def _network_ready(row):
+    if _bindings(row.get('configured_ports')) != _bindings(row.get('published_ports')):
+        return False
+    mode, networks = row.get('network'), row.get('networks')
+    if not isinstance(mode, str) or not isinstance(networks, dict):
+        raise ValueError('startup network inventory is invalid')
+    if mode in {'host', 'none'} or mode.startswith('container:'):
+        return True
+    return bool(networks) and all(isinstance(value, dict)
+        and all(isinstance(value.get(key), str) and re.fullmatch(r'[a-f0-9]{64}', value[key])
+                for key in ('NetworkID', 'EndpointID')) for value in networks.values())
+
+
 def inspect_ready(config, proof, runner, remaining):
     raw = _call(runner, ['ps', '--all', '--filter', 'label=com.docker.compose.project=' + proof['project'],
                          '--format', '{{.ID}}'], remaining)
@@ -110,6 +150,8 @@ def inspect_ready(config, proof, runner, remaining):
         if ('gluetun' not in services or 'qbittorrent' not in services
                 or services['qbittorrent'].get('network') != 'container:' + services['gluetun']['id']):
             raise ValueError('startup torrent namespace differs')
+    if any(not _network_ready(row) for row in services.values()):
+        return False
     return True
 
 

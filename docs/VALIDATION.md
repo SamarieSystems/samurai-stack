@@ -13,7 +13,7 @@ than retaining the same kernel device number forever. The immutable v0.2.1 tag
 is retained and marked with its known reboot regression; this patch supersedes
 it. The earlier v0.2.0 draft remains unpublished.
 
-The complete 993-test suite passed on Windows with 46 explicit skips, in the
+The complete 996-test suite passed on Windows with 46 explicit skips, in the
 isolated Debian guest as root with 14 skips, and as an actual UID/GID 1001
 process with 13 skips. Linux used a private cached Node binary without adding
 a login account, sudo grant or global runtime. All 21 real Compose parser
@@ -39,14 +39,24 @@ write-mode checks remain strict.
   Compose bytes and checks the qBittorrent/Gluetun namespace. It has a bounded
   startup window; it is not a perpetual application monitor.
 - On the assisted ext4 installation, an actual Docker restart with the generated
-  `PartOf=docker.service` policy automatically returned all three stack services
-  and twelve containers. After the final preflight and startup-completion checks
-  were installed, a second real guest reboot returned all twelve containers and
-  all three units without manual starts or recreation. One normal startup retry
-  waited for the configured LAN address; no unit remained failed. Persistent
-  filesystem identities and the enabled 50/20 GiB capacity timer survived.
-  A separate explicit management stop stayed inactive for twenty seconds,
-  longer than the retry interval; only its deliberate start brought it back.
+  `PartOf=docker.service` policy returned all three stack services and twelve
+  containers. An initial reboot reached running/healthy state while some Docker
+  port publications and bridge attachments were still missing. Real HTTP checks
+  caught that false green. The final startup policy checks actual published
+  bindings and attached bridge endpoints, and recreates containers from the same
+  pinned recipe and retained bind data on a whole-stack start.
+- A third real guest reboot with that final policy returned all twelve
+  containers and three active units without manual starts or recreation. Ten
+  actual private HTTP endpoints returned 200, no unit remained failed and the
+  50/20 GiB capacity timer succeeded. A separate explicit management stop stayed
+  inactive for twenty seconds, longer than the retry interval; only its deliberate
+  start brought it back. qBittorrent retained its tunnel binding, matching live
+  forwarded port and unlimited transfer/slot settings. This does not assert
+  full bandwidth or final post-reboot peer reachability during DHT warmup.
+- An actual Jellyfin library request returned a 1 MiB HTTP range with status
+  206. A manifest of 19,772 existing files showed no missing file or size, inode
+  or modification-time change after the controlled recreation. This is a bounded
+  streaming/data-preservation check, not a full playback-client or codec matrix.
 
 Wrong/missing UUIDs, changed inodes, unknown guard edits, changed reviewed
 controls, read-only/fallback mounts and foreign ownership remain refusal cases.

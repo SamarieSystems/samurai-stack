@@ -203,6 +203,7 @@ class RetirementTests(unittest.TestCase):
     def test_reboot_safe_generated_policy_is_recognized_but_custom_restart_dependencies_are_not(self):
         text = generated(self.c).replace('Requires=docker.service\n',
             'Requires=docker.service\nPartOf=docker.service\nStartLimitIntervalSec=0\n')
+        text = text.replace(' up --no-color ', ' up --no-color --force-recreate ')
         self.assertEqual(retirement._generated(self.c, 2, text), OLD)
         for changed in (text.replace('PartOf=docker.service', 'PartOf=unrelated.service'),
                         text.replace('StartLimitIntervalSec=0', 'StartLimitIntervalSec=15'),

@@ -26,6 +26,10 @@
   VPN launch. Add bounded owned-container startup completion checks so a hung
   Compose supervisor with exited containers fails and retries through the
   original storage/network guards instead of appearing successfully started.
+- Verify actual Docker port publications and bridge endpoints in addition to
+  running/health state. Recreate containers from the same pinned recipe and
+  retained bind data on a whole-stack start, so stale detached namespaces from
+  a previous failed launch do not leave apparently healthy but unreachable apps.
 - Permit reviewed replacement of the exact released v0.2.1 capacity watcher
   after proving its existing owned policy and generated units. Bind old/new
   source hashes, keep a private source backup and retain unknown local edits.
