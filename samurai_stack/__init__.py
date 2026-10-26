@@ -1,3 +1,3 @@
 """Samurai Stack: inspect, plan, apply one stage, then verify."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

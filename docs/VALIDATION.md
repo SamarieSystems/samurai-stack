@@ -3,6 +3,20 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.3: Shared maintenance help
+
+October 25, 2026. Final packaged-entry checks found that the shared Bash help
+omitted two working maintenance actions: `--upgrade-storage-identity` and
+`--capacity`. The v0.2.2 tag and green hosted CI are retained; its release was
+held before publication. This patch changes help and release metadata only.
+The 996-test and measured runtime commissioning below carry forward unchanged.
+Both source and portable launchers use the same corrected help implementation.
+All 35 focused launcher, bundle and release-builder tests passed on Windows
+(9 explicit skips), Linux root (13 skips) and actual UID/GID 1001 (12 skips).
+The offline guest lacks Git for the release-builder fixtures; native Bash cases
+run on Linux, while Git-backed builder cases run on Windows. Exact packaged
+entry points and the reviewed local-identity upgrade are checked separately.
+
 ## 0.2.2: Reboot identity and supervised startup recovery
 
 October 25, 2026. An actual assisted-installation reboot changed Linux block

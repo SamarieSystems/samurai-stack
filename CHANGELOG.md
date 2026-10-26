@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 - 2026-10-25
+
+- Include `--upgrade-storage-identity` and `--capacity` in the shared source and
+  portable Bash help, making the existing supported maintenance actions visible
+  before setup. Runtime deployment and recovery behavior is unchanged from the
+  fully tested 0.2.2 implementation.
+- Retain the immutable v0.2.2 tag after its final artifact check caught the help
+  omission before release publication. Supersede it with this patch rather than
+  repointing the tag. Preserve the measured runtime validation below and recheck
+  the exact new packaged entry points.
+
 ## 0.2.2 - 2026-10-25
 
 - Fix a reboot regression where ordinary Linux block-device renumbering made

@@ -10,9 +10,11 @@ samurai_setup_help() {
     '4 VPN and torrents 5 Management        6 Optional extras' \
     "Maintenance: $command_name --hardlinks checks/enables hardlinks without redeploying." \
     "Media quality: $command_name --quality-profiles reviews optional HD/original-audio and size policy without importing media." \
+    "Free space: $command_name --capacity reviews native thresholds and the optional qBit pause watcher." \
     "After an appdata restore: $command_name --restore-accounts verifies existing accounts before accepting new directory identities." \
     "New blank setup after an intentional app wipe: $command_name --fresh (keeps existing media)." \
     "Recovery: $command_name --recover reports existing containers, mounts and saved configuration paths." \
+    "Existing local disk upgrade: $command_name --upgrade-storage-identity reviews the original filesystem UUIDs without resetting media or accounts." \
     "Empty setup storage correction: $command_name --config site.json --choose-storage" \
     'Keep the installer file. Progress and private configuration live outside the download folder.'
 }

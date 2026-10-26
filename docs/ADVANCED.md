@@ -51,7 +51,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.2.2
+git checkout v0.2.3
 ./stack --version
 ```
 
