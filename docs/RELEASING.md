@@ -4,14 +4,14 @@ The operator entry point is Bash. Python 3.11+ and Git implement the local
 build; no pip packages, Docker daemon or running applications are needed.
 
 1. Finish the scoped tests and update `__version__`, changelog and measured
-   validation record. Use `0.2.4` for tag `v0.2.4`; a prerelease such as
+   validation record. Use `0.2.5` for tag `v0.2.5`; a prerelease such as
    `0.3.0rc1` must match `v0.3.0-rc.1`. Commit the reviewed public files. Mark
    `setup`, `stack` and `scripts/release.sh` executable in Git.
 2. Run the builder against that clean committed source, with a new output
    directory outside the checkout:
 
    ```bash
-   bash scripts/release.sh --tag v0.2.4 --output ../samurai-release-v0.2.4
+   bash scripts/release.sh --tag v0.2.5 --output ../samurai-release-v0.2.5
    ```
 
 3. Inspect the result and test the actual generated installer in an isolated

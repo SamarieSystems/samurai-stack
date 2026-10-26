@@ -3,6 +3,45 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.5: Reviewed request quality choices
+
+October 26, 2026. The Windows suite completed 1,060 tests with 46 explicit
+platform/runtime skips and no failures. The policy is an explicit opt-in,
+separate from the existing original-language preset.
+
+- Native Sonarr/Radarr schemas accepted all four policies on an existing Debian
+  deployment. Standard requests defaulted to the existing HD profile ID;
+  anime requests used their separate anime HD ID. Remux and automatic upgrades
+  were excluded. Exact unused factory profiles were retired only after live
+  reference checks, including unmonitored Radarr collections.
+- Native Seerr cache flushes removed stale deleted-profile choices without an
+  application restart. Both the owner and an ordinary advanced requester saw
+  exactly four choices. The requester was still denied administrative settings.
+- Real browser requests under an existing named owner account selected an HD
+  film and only season 1 of an anime series. Native readback showed that same
+  requester, automatic approval, the correct provider IDs, HDD-backed roots,
+  profile IDs, and no monitoring of the anime's other season or specials.
+  At the readback neither request had downloaded files or a queued item.
+  This proves request routing and approval, not provider acquisition.
+- An already-present second season was recognized as available with ten files.
+  A separate private-tailnet Jellyfin Web test played an episode with English
+  audio and English subtitles. The video was copied directly; unsupported
+  Dolby Digital Plus audio was converted to AAC. This does not qualify CPU
+  video transcoding or 4K playback.
+- A repeated reviewed apply issued zero application API writes. Interruption
+  fixtures covered a lost profile-creation response, partial factory retirement,
+  an owner edit after a durable intent, and a missing pinned profile identity.
+  Conflicting live edits and missing identities stop for review.
+- The exact owned Bazarr English label migrated while retaining profile ID,
+  provider settings and subtitle behavior. Existing embedded English tracks
+  count toward the policy; no library-wide subtitle acquisition was triggered.
+
+A separate live guest reboot returned Tailscale, all three Compose projects,
+all twelve containers and all ten web frontends without manual starts in about
+4 minutes 25 seconds. VPN establishment needed automatic retries before the
+torrent project became healthy. This is a guest reboot measurement on one
+installation, not a physical-host power-loss or universal provider guarantee.
+
 ## 0.2.4: Service-first names with retained resource identities
 
 October 26, 2026. The Windows suite completed 1,033 tests with 46 explicit

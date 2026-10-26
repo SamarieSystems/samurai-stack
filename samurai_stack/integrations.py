@@ -494,6 +494,14 @@ def _seerr(r, service, *, readback_only=False):
     else:
         item.update({"seriesType": "standard", "animeSeriesType": "anime", "enableSeasonFolders": True,
                      "monitorNewItems": "all"})
+        from . import request_profiles
+        if request_profiles.has_policy(r.config):
+            anime_name = request_profiles.profile_names(r.config)["anime_hd"]
+            anime_profiles = [p for p in profiles if p.get("name") == anime_name]
+            if len(anime_profiles) != 1:
+                raise Conflict("The owned anime request profile is missing or ambiguous; no server was created")
+            item.update(activeAnimeProfileId=anime_profiles[0]["id"], activeAnimeProfileName=anime_name,
+                        activeAnimeDirectory=item["activeDirectory"])
     r.call("POST", base, headers=headers, json=item)
     return _seerr(r, service, readback_only=True)
 

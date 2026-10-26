@@ -65,7 +65,7 @@ Existing configurations that recorded a `/dev/sdX` source are not silently rebou
 
 ## Upgrade an existing local installation
 
-Use the verified [0.2.4 release installer](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.4)
+Use the verified [0.2.5 release installer](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.5)
 to recover an existing local installation. From the portable release:
 
 ```bash

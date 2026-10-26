@@ -102,9 +102,10 @@ def parser():
     commands.add_parser("inspect", help="Read-only local mount/hardware/runtime inventory")
     hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
     hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
-    profiles = commands.add_parser("profiles", help="Review optional original-audio HD profiles; never reassign existing titles")
+    profiles = commands.add_parser("profiles", help="Review bounded media profiles; explicit request choices can classify metadata-confirmed anime")
     profiles.add_argument("action", choices=["plan", "apply", "verify"])
     profiles.add_argument("--global-sizes", action="store_true", help="Explicitly include shared quality size limits in plan/verify")
+    profiles.add_argument("--request-choices", action="store_true", help="Plan-only opt-in: four HD/anime/encoded-UHD request choices, no searches or automatic upgrades")
     profiles.add_argument("--out", default="profiles-plan.json")
     profiles.add_argument("--plan")
     profiles.add_argument("--accept-plan")
@@ -184,12 +185,18 @@ def main(argv=None):
             elif args.command == "profiles":
                 from . import media_profiles
                 if args.action == "plan":
-                    result = media_profiles.plan(c, include_global_sizes=args.global_sizes)
+                    if args.request_choices:
+                        from . import request_profiles
+                        result = request_profiles.plan(c, include_global_sizes=args.global_sizes)
+                    else:
+                        result = media_profiles.plan(c, include_global_sizes=args.global_sizes)
                     write_json(args.out, result)
                 elif args.action == "verify":
+                    if args.request_choices:
+                        raise SafetyError("Request choices are selected in the reviewed plan; ordinary verify recognizes the saved policy")
                     result = media_profiles.verify(c, include_global_sizes=args.global_sizes)
                 else:
-                    if args.global_sizes or not args.plan or not args.accept_plan:
+                    if args.global_sizes or args.request_choices or not args.plan or not args.accept_plan:
                         raise SafetyError("Profile apply requires --plan and --accept-plan; global size selection belongs in the reviewed plan")
                     document = json.loads(private_read(args.plan))
                     if document.get("review_hash") != args.accept_plan:

@@ -232,6 +232,24 @@ class IntegrationTests(unittest.TestCase):
         verified = integrations.verify_stage(config(), 2, request=transport, secret_resolver=secrets)
         self.assertTrue(verified["ok"], verified)
 
+    def test_new_curated_seerr_server_keeps_distinct_anime_hd_default(self):
+        from samurai_stack import media_profiles, request_profiles
+        vendor, c = VendorModel(), config()
+        names = request_profiles.profile_names(c)
+        def transport(method, url, **kwargs):
+            value = vendor(method, url, **kwargs)
+            if urlsplit(url).port == 5055 and urlsplit(url).path.endswith('/test'):
+                value['profiles'] = [{'id': 7, 'name': names['hd']}, {'id': 8, 'name': names['anime_hd']}]
+            return value
+        with mock.patch.object(request_profiles, 'has_policy', return_value=True):
+            result = integrations.configure_stage(c, 2, request=transport, secret_resolver=secrets)
+        self.assertTrue(result['ok'], result)
+        sonarr = vendor.collections[('seerr', '/api/v1/settings/sonarr')][0]
+        self.assertEqual(7, sonarr['activeProfileId'])
+        self.assertEqual(8, sonarr['activeAnimeProfileId'])
+        self.assertEqual('/data/library/tv', sonarr['activeAnimeDirectory'])
+        self.assertEqual(names['anime_hd'], sonarr['activeAnimeProfileName'])
+
     def test_jellyfin_uses_standard_authorization_without_removed_legacy_header(self):
         seen = []
         vendor = VendorModel()

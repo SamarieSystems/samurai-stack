@@ -4,7 +4,7 @@
 
 There are two different things to preserve: **the media you store** and **the applications' knowledge about it**. A server can retain every movie file and still lose users, requests, watch history, provider configuration and download state if its application databases are gone.
 
-Samurai Stack 0.2.4 does not supply a universal scheduled backup, one-click restore, automatic image upgrade or database rollback. A folder named `backups` is not proof that the whole server is backed up. This page is an operator checklist; choose a real backup tool/destination and the applications' supported backup procedures before relying on it.
+Samurai Stack 0.2.5 does not supply a universal scheduled backup, one-click restore, automatic image upgrade or database rollback. A folder named `backups` is not proof that the whole server is backed up. This page is an operator checklist; choose a real backup tool/destination and the applications' supported backup procedures before relying on it.
 
 ## What needs a backup?
 

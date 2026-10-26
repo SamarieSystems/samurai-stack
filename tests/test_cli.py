@@ -26,6 +26,27 @@ class WizardAnswers(unittest.TestCase):
             self.assertEqual(1, cli.main(['profiles', 'apply', '--plan', 'fixture.json', '--accept-plan', 'fixture-review']))
         apply.assert_not_called()
 
+    def test_four_request_choices_are_explicit_plan_only_opt_in(self):
+        from samurai_stack import media_profiles, request_profiles
+        with patch.object(cli, 'load_config', return_value=cli.default_config()), \
+             patch.object(cli, 'write_json') as write, \
+             patch.object(request_profiles, 'plan', return_value={'policy_version': 3}) as curated, \
+             patch.object(media_profiles, 'plan') as baseline, redirect_stdout(io.StringIO()):
+            self.assertEqual(0, cli.main(['profiles', 'plan', '--request-choices', '--out', 'review.json']))
+        curated.assert_called_once()
+        self.assertFalse(curated.call_args.kwargs['include_global_sizes'])
+        baseline.assert_not_called()
+        write.assert_called_once_with('review.json', {'policy_version': 3})
+
+    def test_request_choice_flag_cannot_skip_review_during_apply(self):
+        from samurai_stack import media_profiles
+        with patch.object(cli, 'load_config', return_value=cli.default_config()), \
+             patch.object(media_profiles, 'apply') as apply, \
+             patch.object(cli, 'private_read') as read, redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            self.assertEqual(1, cli.main(['profiles', 'apply', '--request-choices', '--plan', 'review.json', '--accept-plan', 'hash']))
+        apply.assert_not_called()
+        read.assert_not_called()
+
     def test_typo_reprompts_instead_of_disabling_feature(self):
         with patch('builtins.input', side_effect=['yse', 'YES']) as read, patch('builtins.print'):
             self.assertTrue(ask_bool('Enable torrents'))

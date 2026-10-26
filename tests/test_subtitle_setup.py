@@ -142,7 +142,7 @@ class SubtitleTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["subtitle_delivery"], "not_tested")
         self.assertEqual(self.vendor.profiles[0], custom)
-        self.assertEqual(self.vendor.profiles[1], subtitles._profile(5))
+        self.assertEqual(self.vendor.profiles[1], subtitles._profile(5, subtitles.profile_name(self.c)))
         self.assertEqual(self.vendor.other_settings, before)
         self.assertTrue(all(row["enabled"] for row in self.vendor.languages))
         self.assertEqual(self.vendor.general["concurrent_jobs"], 1)
@@ -317,11 +317,11 @@ class SubtitleTests(unittest.TestCase):
         self.assertEqual(preview['profile_action'], 'repair_owned_legacy_profile')
         self.assertFalse(preview['create_profile'])
         self.assertTrue(self.apply(preview)['ok'])
-        self.assertEqual(self.vendor.profiles, [subtitles._profile(1), other])
+        self.assertEqual(self.vendor.profiles, [subtitles._profile(1, subtitles.profile_name(self.c)), other])
         backup = json.loads(next((self.root/'state').glob('subtitle-profile-repair-*.json')).read_text())
         self.assertEqual(backup['before']['profiles'], [legacy, other])
         self.assertEqual(self.receipt()['previous_profile'], legacy)
-        self.assertEqual(self.receipt()['profile'], subtitles._profile(1))
+        self.assertEqual(self.receipt()['profile'], subtitles._profile(1, subtitles.profile_name(self.c)))
 
     def test_repair_refuses_foreign_or_edited_legacy_profile(self):
         self.legacy()
@@ -333,7 +333,7 @@ class SubtitleTests(unittest.TestCase):
         self.legacy();self.vendor.lost = True
         with self.assertRaises(SafetyError):self.apply()
         self.assertEqual(self.receipt()['state'], 'intent')
-        self.assertEqual(self.vendor.profiles, [subtitles._profile(1)])
+        self.assertEqual(self.vendor.profiles, [subtitles._profile(1, subtitles.profile_name(self.c))])
         self.vendor.calls.clear();self.apply()
         self.assertFalse(self.writes())
         self.assertEqual(self.receipt()['state'], 'verified')
@@ -345,7 +345,31 @@ class SubtitleTests(unittest.TestCase):
         self.assertEqual(self.receipt()['previous_profile'], legacy)
         self.vendor.ignore = None
         self.assertTrue(self.apply()['ok'])
-        self.assertEqual(self.vendor.profiles, [subtitles._profile(1)])
+        self.assertEqual(self.vendor.profiles, [subtitles._profile(1, subtitles.profile_name(self.c))])
+
+    def test_owned_old_display_name_is_renamed_without_changing_policy_id_or_other_profiles(self):
+        self.apply()
+        old=subtitles._profile(1)
+        self.vendor.profiles=[old, {**subtitles._profile(8), 'name':'Owner custom', 'tag':'owner'}]
+        path=self.root/'state/subtitle-setup.json'
+        saved=self.receipt();saved['profile']=old
+        write_json(path,saved,replace=True)
+        before=copy.deepcopy(self.vendor.profiles)
+        reviewed=self.plan()
+        self.assertEqual('rename_owned_profile',reviewed['profile_action'])
+        self.assertTrue(self.apply(reviewed)['ok'])
+        expected=copy.deepcopy(before);expected[0]['name']=subtitles.profile_name(self.c)
+        self.assertEqual(expected,self.vendor.profiles)
+        self.assertEqual(old,self.receipt()['previous_profile'])
+        self.vendor.calls.clear()
+        self.assertTrue(self.apply()['ok']);self.assertFalse(self.writes())
+
+    def test_duplicate_legacy_and_friendly_subtitle_names_refuse_replace_all_write(self):
+        self.apply()
+        self.vendor.profiles.append(subtitles._profile(2))
+        self.vendor.calls.clear()
+        with self.assertRaises(SafetyError):self.plan()
+        self.assertFalse(self.writes())
 
     def test_legacy_repair_snapshot_change_invalidates_review_without_profile_write(self):
         self.legacy();preview = self.plan()

@@ -130,10 +130,12 @@ additions and preserves existing tracks. It does **not** promise subtitles for
 every old title or run a whole-library backfill. Give the owner the exact title
 and episode if a needed track is missing. See [subtitle policy](../SUBTITLES.md).
 
-The optional quality preset favors original-language audio. An English film
-should retain English, while a Japanese original can retain Japanese. That is
-different from selecting English subtitles or an English dub. See
-[selection policy](../MEDIA-PROFILES.md).
+Ask the owner which optional quality policy is enabled. The original preset
+keeps original-language audio. The four-choice request policy defaults to
+1080p English or anime 1080p dual audio, with explicit 4K choices. Anime can
+fall back to Japanese when an English dub is unavailable. Audio preferences
+and subtitle preferences are separate; check the actual player track menu.
+See [selection policy](../MEDIA-PROFILES.md).
 
 ## If playback buffers
 

@@ -15,7 +15,7 @@ import shutil
 from . import catalog, engine, naming, onboarding, storage
 from .safety import SafetyError, digest, no_symlinks, write_json
 
-PROFILE_NAME = "Samurai English"
+PROFILE_NAME = "Samurai English"  # Exact historical receipt alias, not the new display default.
 DEFAULT_PROVIDERS = ("gestdown", "yifysubtitles")
 PROVIDERS = {"gestdown": {"scope": "series", "credentials": ()},
              "yifysubtitles": {"scope": "movies", "credentials": ()},
@@ -172,8 +172,12 @@ class _Api:
             raise SafetyError("Bazarr subtitle policy request failed; private retry state was retained") from None
 
 
-def _profile(profile_id):
-    return {"profileId": profile_id, "name": PROFILE_NAME, "cutoff": 65535,
+def profile_name(c):
+    return "English | " + naming.project_name(c, 2)
+
+
+def _profile(profile_id, name=PROFILE_NAME):
+    return {"profileId": profile_id, "name": name, "cutoff": 65535,
             "items": [{"id": 1, "language": "en", "audio_exclude": "False", "audio_only_include": "False",
                        "forced": "False", "hi": "False"}],
             "mustContain": [], "mustNotContain": [], "originalFormat": 1, "tag": None}
@@ -237,16 +241,16 @@ def _plan(c, providers, runner, request, resolver):
     api = _Api(c, request, resolver or engine.secret_resolver(c))
     before = _snapshot(api)
     receipt = _receipt(c, path)
-    matches = [row for row in before["profiles"] if row.get("name") == PROFILE_NAME]
+    matches = [row for row in before["profiles"] if row.get("name") in {PROFILE_NAME, profile_name(c)}]
     accepted = [receipt["profile"]] if receipt else []
     if receipt:
         profile_id = receipt["profile"].get("profileId")
         if (type(profile_id) is not int or profile_id < 1
-                or receipt["profile"] not in (_profile(profile_id), _legacy_profile(profile_id))):
+                or receipt["profile"] not in (_profile(profile_id), _profile(profile_id, profile_name(c)), _legacy_profile(profile_id))):
             raise SafetyError("Saved English subtitle profile does not match a supported installer policy")
         previous = receipt.get("previous_profile")
         if previous is not None:
-            if previous != _legacy_profile(profile_id):
+            if previous not in (_legacy_profile(profile_id), _profile(profile_id)):
                 raise SafetyError("Saved subtitle repair intent does not match the exact earlier installer defect")
             if receipt["state"] == "intent":
                 accepted.append(previous)
@@ -254,16 +258,17 @@ def _plan(c, providers, runner, request, resolver):
         raise SafetyError("An existing subtitle profile uses the managed name; no profile was replaced")
     if receipt and not matches and receipt.get("state") == "verified":
         raise SafetyError("The verified subtitle profile is missing; it will not be recreated automatically")
-    desired = _profile(receipt["profile"]["profileId"]) if receipt else _profile(max([p["profileId"] for p in before["profiles"]] + [0]) + 1)
+    desired = _profile(receipt["profile"]["profileId"], profile_name(c)) if receipt else _profile(max([p["profileId"] for p in before["profiles"]] + [0]) + 1, profile_name(c))
     repair = bool(matches) and matches[0] != desired
+    relabel = bool(matches) and {**matches[0], "name": desired["name"]} == desired and repair
     general = {**GENERAL, "serie_default_profile": desired["profileId"], "movie_default_profile": desired["profileId"],
                "enabled_providers": providers}
     changes = {key: value for key, value in general.items() if before["settings"]["general"].get(key) != value}
     value = {"schema_version": 1, "kind": "subtitle-future-policy", **_binding(c), "target": target,
              "providers": providers, "input_digest": digest(creds), "snapshot_digest": digest(before),
              "receipt_digest": digest(receipt), "profile": desired, "create_profile": not bool(matches),
-             "repair_profile": repair, "profile_policy_version": 2,
-             "profile_action": "repair_owned_legacy_profile" if repair else "create" if not matches else "verify",
+             "repair_profile": repair, "profile_policy_version": 3,
+             "profile_action": "rename_owned_profile" if relabel else "repair_owned_legacy_profile" if repair else "create" if not matches else "verify",
              "settings": changes, "scope": "future_additions_only", "existing_media_assigned": 0,
              "minimum_free_gib": {"media": 50, "applications": 20},
              "note": "Provider registration is checked; subtitle availability and delivery remain untested"}

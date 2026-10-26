@@ -28,7 +28,7 @@ storage inventory are in [Deployment intake](../DEPLOYMENT-NIGHT.md).
 ## Download once, check once, launch
 
 Get **`samurai-setup.sh`** and **`SHA256SUMS`** from the
-[v0.2.4 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.4).
+[v0.2.5 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.5).
 Copy both into the same directory inside the Linux VM. Open an interactive
 terminal in that directory, inside the guest, not the Proxmox host console.
 

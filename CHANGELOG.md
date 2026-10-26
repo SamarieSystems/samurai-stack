@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.5 - 2026-10-26
+
+- Add an explicit reviewed four-choice request policy: 1080p English, anime
+  1080p dual audio, 4K English opt-in and anime 4K dual audio opt-in. Standard
+  and anime requests use distinct HD defaults on the same existing backends.
+- Exclude remuxes and automatic upgrades. Review bounded UHD size limits,
+  English/dual-audio/subtitle preferences and any shared HD size changes.
+  Release labels are evidence, not a guarantee of the actual media tracks.
+- Preserve the existing default HD profile ID, deployment identity, media paths,
+  accounts and download queue. Reassign verified anime metadata only during
+  the explicit review, and retire exact unused factory profiles after checking
+  title, import-list, collection, request and override-rule references.
+- Bind the optional policy to a private installation receipt and resource
+  backups. Later profile maintenance verifies that selected policy instead of
+  recreating the older original-language profile. Existing installations that
+  have not opted in retain their earlier policy.
+- Refresh only the affected native Seerr profile caches after a change and
+  verify the real request dropdown. An unchanged repeated apply performs no
+  application API writes. Keep advanced request access separate from admin.
+- Migrate the exact owned legacy Bazarr English display label without changing
+  its identity, provider settings or subtitle behavior.
+
 ## 0.2.4 - 2026-10-26
 
 - Use service-first display labels qualified by the chosen Compose project,

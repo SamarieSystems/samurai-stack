@@ -34,8 +34,15 @@ LIMITATIONS = [
 ]
 
 
-def profile_name(config):
+def baseline_profile_name(config):
     return "1080p Original | " + naming.project_name(config, 2)
+
+
+def profile_name(config):
+    from . import request_profiles
+    if request_profiles.has_policy(config):
+        return request_profiles.profile_names(config)["hd"]
+    return baseline_profile_name(config)
 
 
 def legacy_profile_name(config):
@@ -316,6 +323,10 @@ def _inventory(config, runner, request, secret_resolver, include_global_sizes):
 
 def plan(config, *, include_global_sizes=False, runner=None, request=None, secret_resolver=None):
     """Read-only preview. Size limits remain unchanged unless explicitly selected."""
+    from . import request_profiles
+    if request_profiles.has_policy(config):
+        return request_profiles.plan(config, include_global_sizes=include_global_sizes, runner=runner,
+                                     request=request, secret_resolver=secret_resolver)
     inventory = _inventory(config, runner or engine.run, request or engine.request,
                            secret_resolver or engine.secret_resolver(config), include_global_sizes)
     return inventory.reviewed(config, include_global_sizes)
@@ -338,6 +349,12 @@ def apply(config, reviewed_plan, *, runner=None, request=None, secret_resolver=N
     is refused before any API write. Partial API failures leave an explicit,
     inspectable partial setup, never a destructive rollback.
     """
+    if isinstance(reviewed_plan, dict) and reviewed_plan.get("policy_version") == 3:
+        from . import request_profiles
+        return request_profiles.apply(config, reviewed_plan, runner=runner, request=request, secret_resolver=secret_resolver)
+    from . import request_profiles
+    if request_profiles.has_policy(config):
+        raise SafetyError("This installation owns a four-choice request policy; review its current plan instead of an old HD-only plan")
     if not isinstance(reviewed_plan, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(reviewed_plan.get("review_hash", ""))):
         raise SafetyError("Review the profile plan before applying it")
     runner, request = runner or engine.run, request or engine.request
@@ -414,7 +431,11 @@ def apply(config, reviewed_plan, *, runner=None, request=None, secret_resolver=N
 
 
 def verify(config, *, include_global_sizes=False, runner=None, request=None, secret_resolver=None):
-    """Read-only policy proof; no title, download or import APIs are called."""
+    """Read-only policy proof; no title, download or import mutation is issued."""
+    from . import request_profiles
+    if request_profiles.has_policy(config):
+        return request_profiles.verify(config, include_global_sizes=include_global_sizes, runner=runner,
+                                       request=request, secret_resolver=secret_resolver)
     inventory = _inventory(config, runner or engine.run, request or engine.request,
                            secret_resolver or engine.secret_resolver(config), include_global_sizes)
     profiles = {service: state["existing_profile"]["id"] if state["existing_profile"] else None

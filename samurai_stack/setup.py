@@ -462,9 +462,9 @@ class GuidedSetup:
 
     def media_profiles(self):
         """Offer a reviewed policy without assigning profiles to existing titles."""
-        self.say('Optional media policy: 720p/1080p HDTV, WEB and Blu-ray; original audio; parsed HDR/Dolby Vision names rejected.')
-        self.say('English-origin titles keep English. Foreign titles keep their original language. Release metadata can be wrong.')
-        self.say('Existing titles, files, queues and Seerr defaults are kept. New Seerr connections prefer this profile.')
+        self.say('Review the current media policy. Existing owned request choices are retained; no fifth baseline profile is created.')
+        self.say('The initial HD-only policy keeps original audio. An explicit four-choice policy uses English/dual audio and optional encoded 4K.')
+        self.say('No media is searched, downloaded or moved. Any metadata-only anime assignments and default changes are listed before applying.')
         directory = self._state_dir() / ('profile-review-' + uuid.uuid4().hex)
         directory.mkdir(mode=0o700)
 
@@ -478,11 +478,20 @@ class GuidedSetup:
                 return False
             for service, item in document.get('services', {}).items():
                 self.say('  ' + APP_NAMES.get(service, service) + ': ' + str(item.get('action')) + ' ' + str(item.get('profile')))
+                for choice in item.get('choices', []):
+                    self.say('    Choice: ' + str(choice['name']))
+                for assignment in item.get('anime_assignments', []):
+                    self.say('    Anime profile only: ' + str(assignment.get('title')) + ' [ID ' + str(assignment['id']) + '] -> ' + str(assignment['to_name']))
+                for assignment in item.get('collection_assignments', []):
+                    self.say('    Unmonitored collection profile only: ' + str(assignment.get('title')) + ' [ID ' + str(assignment['id']) + '] -> ' + str(assignment['to_name']))
+                for retired in item.get('retire_factory_profiles', []):
+                    self.say('    Retire unused factory preset: ' + str(retired['name']) + ' [ID ' + str(retired['id']) + ']')
                 for change in item.get('size_changes', []):
                     limits = change['after']
                     self.say('    ' + str(change['quality']) + ': min/preferred/max ' + '/'.join(str(limits[key]) for key in ('minSize', 'preferredSize', 'maxSize')) + ' MB/minute')
             self.say('Private reviewed policy: ' + str(path))
             question = ('Apply these shared size limits to ALL profiles for the listed qualities?' if include_sizes
+                        else 'Apply the listed request choices, defaults and anime profile assignments without searching?' if document.get('policy_version') == 3
                         else 'Create/verify these optional profiles without changing existing titles?')
             if not self.yes(question, False):
                 self.say('Policy kept unchanged. Use p in ./setup to review it later.')
