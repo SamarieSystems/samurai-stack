@@ -25,7 +25,7 @@ the new session. Existing media is retained; this is not a media migration.
 | 2 | Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr; SABnzbd when Usenet is enabled | Terminal media accounts and private API keys; library roots; Starr download clients; Prowlarr/Bazarr links; Jellyfin movie/TV libraries and their enabled Seerr selections; Seerr Starr settings; verified-TLS NNTP setup | Supply administrator/viewer and provider credentials; choose indexers, subtitle providers/languages and quality preferences; test actual acquisition/playback |
 | 3 | Gluetun, qBittorrent; authenticated port watcher when forwarding is enabled | Namespace boundary; initial authenticated qBit configuration; `tun0`; paths/categories; uncapped bandwidth; Starr clients and release protocol preference | VPN service credentials/configuration; copied Starr API keys on separate hosts; VPN commissioning proofs |
 | 4 | Dockge, Uptime Kuma; optional Homarr with a restricted socket proxy | Persistent local state/LAN bindings; proven-new Dockge/Kuma owners; authenticated login/project/monitor checks; additive named private TCP monitors | Current owner credentials for existing accounts; optional Homarr onboarding; actual notification destination and delivery test |
-| 5 | Immich server, CPU machine learning, Valkey, matched PostgreSQL image | Private DB credential, local DB storage, dedicated upload tree, external originals mounted read-only | Administrator onboarding, independent backup, controlled upload/playback/restore tests |
+| 5 | Immich server, optional CPU machine learning, Valkey, matched PostgreSQL image | Private DB credential, local DB storage, dedicated upload tree, native owner enrollment, bounded processing and owner quota | Independent backup and controlled upload/download/restore tests |
 | 6 | Navidrome and slskd; optional Music Assistant | Local application state, read-only music library, separate downloads, private credentials | Administrator enrollment, Soulseek account, music import policy, player/provider enrollment |
 
 MediaBot, local LLMs, public ingress and Home Assistant are not prerequisites.
@@ -279,6 +279,11 @@ pinned to immutable indexes; see [IMAGES.md](IMAGES.md). Upgrades require a revi
 working database/originals backups, not a blind pull of an incompatible database
 major version. The application verifier checks ping, initialized/onboarded flags
 and maintenance state. It does not claim a successful backup or restore.
+
+The guided photos path disables ML by default and uses bounded server/database
+memory, CPU quotas and native job concurrency. Owner login and its quota are
+configured in the terminal. See [photo setup](PHOTOS.md) for the limits,
+storage-floor hold and separate upload/restore acceptance tests.
 
 Immich server and ML run with configured media UID/GID. Their upload/cache
 directories must permit that identity. The PostgreSQL entrypoint manages its own

@@ -135,6 +135,9 @@ def preflight(c, stage, runner=run):
     addresses = {a.get("local") for iface in json.loads(ip_result.stdout) for a in iface.get("addr_info", [])}
     if c["bind_address"] not in addresses:
         raise SafetyError("bind_address is not present on this host")
+    if stage in {5, 6}:
+        from .extras import free_space
+        free_space(c, {5: "photos", 6: "music"}[stage])
     return {"host_id": host_identity(), "mount": {k: identity[k] for k in ["target", "source", "fstype"]} if identity else None}
 
 
@@ -751,6 +754,12 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
                     if not existed and os.name == "posix":
                         os.chown(entry, c["puid"], c["pgid"])
                 prepare_secrets(c, stage)
+                if stage == 5:
+                    from .extras import prepare_fresh
+                    prepare_fresh(c, stage)
+                if stage == 5:
+                    from .photos_setup import reserve_fresh
+                    reserve_fresh(c, runner=runner)
                 if stage == 2:
                     # Establish freshness before any application can create an
                     # owner or database. Legacy installs are never enrolled by
@@ -776,6 +785,9 @@ def apply(c, stage, document, accepted, *, runner=run, ready_timeout=180):
                     storage.verify(c, runner)
                 docker(runner, *compose_args(c, stage), "config", "--quiet")
                 unit = install_unit(c, stage, runner, changed=changed, actions=recovery_actions)
+                if stage in {5, 6}:
+                    from .extras import install_capacity_guard
+                    install_capacity_guard(c, stage, runner=runner)
                 deadline = time.monotonic() + ready_timeout
                 while True:
                     try:

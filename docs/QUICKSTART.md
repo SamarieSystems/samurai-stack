@@ -47,7 +47,7 @@ Application ports bind to the selected LAN address; installing Tailscale alone
 does not also bind those ports to a separate Tailscale address.
 
 Download `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.6 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.6).
+[0.2.7 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7).
 Copy both files into one directory in the guest. In a terminal in that directory:
 
 ```sh
@@ -116,7 +116,7 @@ require a choice; unresolved existing-installation evidence pauses setup.
 
 The shortest update for an existing source ZIP is the portable
 `samurai-setup.sh` release asset. Obtain it from the
-[0.2.6 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.6)
+[0.2.7 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7)
 and verify its supplied `SHA256SUMS`. For an installation already registered
 outside its source folder, run from a root console in any directory:
 
@@ -155,7 +155,7 @@ the release source can be selected with:
 
 ```sh
 git fetch --tags origin
-git checkout v0.2.6
+git checkout v0.2.7
 ./setup
 ```
 
@@ -400,7 +400,9 @@ Select **6**, then choose the optional component deliberately. This updates its
 feature selection and runs that component's setup. It is not an unattended
 install-everything button.
 
-- **Photos:** finish Immich onboarding, upload disposable test pictures and
+- **Photos:** the terminal enrolls the verified-new owner, or authenticates the
+  existing owner, and applies the lean resource policy and owner quota. See
+  [photo setup and acceptance](PHOTOS.md). Upload disposable test pictures and
   verify retrieval. Establish independent originals-plus-database backups and
   perform an isolated restore before adding personal photos. Budget resources
   separately; [deployment intake](DEPLOYMENT-NIGHT.md) links the requirements.

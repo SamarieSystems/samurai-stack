@@ -134,6 +134,32 @@ class SubtitleTests(unittest.TestCase):
         self.assertFalse(self.writes())
         self.assertFalse((self.root / "state/subtitle-setup.json").exists())
 
+    def test_fresh_default_is_tv_only_and_discloses_missing_movie_provider(self):
+        self.assertEqual(subtitles.DEFAULT_PROVIDERS, ('gestdown',))
+        self.assertFalse(self.plan()['movie_provider_configured'])
+        result = self.apply()
+        self.assertEqual(self.vendor.general['enabled_providers'], ['gestdown'])
+        self.assertFalse(result['movie_provider_configured'])
+        self.assertTrue(any('No movie subtitle provider' in n for n in result['notifications']))
+
+    def test_omitted_choices_keep_saved_opensubtitles_instead_of_reverting_to_default(self):
+        supplied = {'username': 'fixture-provider-user', 'password': 'fixture-provider-private'}  # release-audit: synthetic - subtitle account fixture
+        subtitles.save_provider_credentials(self.c, 'opensubtitlescom', supplied)
+        self.apply(self.plan(['gestdown', 'opensubtitlescom']))
+        self.vendor.calls.clear()
+        preview = subtitles.plan(self.c, **self.options())
+        self.assertEqual(preview['providers'], ['gestdown', 'opensubtitlescom'])
+        self.assertNotIn('enabled_providers', preview['settings'])
+        self.assertFalse(self.writes())
+        self.apply(preview)
+        self.assertFalse(self.writes(), 'An unchanged provider login must not reset native auth state')
+
+    def test_legacy_yify_is_preserved_only_with_explicit_choice_and_warned(self):
+        result = self.apply(self.plan(['gestdown', 'yifysubtitles']))
+        self.assertTrue(result['movie_provider_configured'])
+        self.assertTrue(any('legacy provider' in n for n in result['notifications']))
+        self.assertEqual(subtitles.plan(self.c, **self.options())['providers'], ['gestdown', 'yifysubtitles'])
+
     def test_new_policy_preserves_profiles_languages_connections_and_does_not_search(self):
         custom = {**subtitles._profile(4), "name": "Existing French", "tag": "custom"}
         self.vendor.profiles = [custom]
@@ -278,6 +304,26 @@ class SubtitleTests(unittest.TestCase):
         subtitles.save_provider_credentials(self.c, "opensubtitlescom", supplied)
         with patch.object(engine, "host_identity", return_value="different-host"):
             with self.assertRaisesRegex(SafetyError, "another installation"):self.plan(["opensubtitlescom"])
+
+    def test_opensubtitles_email_login_refused_before_private_input_or_vendor_write(self):
+        supplied = {"username": "fixture-provider@example.invalid", "password": "fixture-provider-private"}  # release-audit: synthetic - subtitle account fixture
+        with self.assertRaisesRegex(SafetyError, "account username, not an email"):
+            subtitles.save_provider_credentials(self.c, "opensubtitlescom", supplied)
+        root, _ = subtitles._paths(self.c)
+        self.assertFalse((root / "secrets/subtitle-provider-opensubtitlescom.json").exists())
+        self.assertFalse(self.vendor.calls)
+
+    def test_older_saved_email_login_refused_before_vendor_requests(self):
+        supplied = {"username": "fixture-provider-user", "password": "fixture-provider-private"}  # release-audit: synthetic - subtitle account fixture
+        subtitles.save_provider_credentials(self.c, "opensubtitlescom", supplied)
+        root, _ = subtitles._paths(self.c)
+        path = root / "secrets/subtitle-provider-opensubtitlescom.json"
+        value = json.loads(path.read_text())
+        value['credentials']['username'] = 'fixture-provider@example.invalid'
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(SafetyError, "account username, not an email"):
+            self.plan(['opensubtitlescom'])
+        self.assertFalse(self.vendor.calls)
 
     def test_verify_requires_verified_receipt(self):
         with self.assertRaisesRegex(SafetyError, "verified subtitle"):subtitles.verify(self.c, **self.options())

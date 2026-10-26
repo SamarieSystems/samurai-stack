@@ -17,10 +17,13 @@ class GuidedSubtitleTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.app = self.root / "app"; (self.app / "state").mkdir(parents=True)
         self.c = cli.default_config(); self.c["install_root"] = str(self.app)
-        self.messages, self.read = [], Mock(return_value="y")
+        self.messages = []
+        self.read = Mock(side_effect=lambda prompt: "n" if prompt.startswith('Add an existing OpenSubtitles.com account') else "y")
         self.ui = setup.GuidedSetup(self.root, self.root / "site.json", input_fn=self.read,
             output_fn=self.messages.append, state_base=self.root / "progress", registry_root=self.root / "registry")
         self.enterContext(patch.object(self.ui, "_state_dir", return_value=self.root))
+        self.enterContext(patch.object(self.ui, 'private_input',
+                                      side_effect=AssertionError('Unexpected credential prompt in subtitle fixture')))
         self.preview = {"kind": "subtitle-future-policy", "providers": list(subtitle_setup.DEFAULT_PROVIDERS),
                         "review_hash": "a"*64}
         self.report = {"ok": True, "scope": "future_additions_only", "notifications": []}
@@ -32,7 +35,9 @@ class GuidedSubtitleTests(unittest.TestCase):
 
     def test_fresh_optional_policy_is_reviewed_once_and_reports_delivery_limit(self):
         self.assertTrue(self.ui.subtitles(self.c))
-        self.read.assert_called_once()
+        self.assertEqual(self.read.call_count, 2)
+        self.assertIn('OpenSubtitles.com account', self.read.call_args_list[0].args[0])
+        self.assertIn('Apply this optional future-only', self.read.call_args_list[1].args[0])
         self.plan.assert_called_once_with(self.c, subtitle_setup.DEFAULT_PROVIDERS)
         self.apply.assert_called_once_with(self.c, self.preview)
         self.assertIn("existing-library backfill was not run", self.output())
@@ -40,7 +45,7 @@ class GuidedSubtitleTests(unittest.TestCase):
         self.assertIn("No current title will be assigned or searched", self.output())
 
     def test_declining_optional_subtitles_does_not_block_media_or_write_backend(self):
-        self.read.return_value = "n"
+        self.read.side_effect = ["n", "n"]
         self.assertTrue(self.ui.subtitles(self.c))
         self.apply.assert_not_called(); self.verify.assert_not_called()
         self.assertIn("deferred", self.output())
@@ -116,7 +121,7 @@ class SubtitleCliTests(unittest.TestCase):
         self.enterContext(patch.object(cli, "load_config", return_value=cli.default_config()))
 
     def test_plan_defaults_and_explicit_provider_selection(self):
-        for suffix, expected in (([], subtitle_setup.DEFAULT_PROVIDERS), (["--providers", "gestdown"], ["gestdown"])):
+        for suffix, expected in (([], None), (["--providers", "gestdown"], ["gestdown"])):
             with self.subTest(suffix=suffix), patch.object(subtitle_setup, "plan", return_value={"review_hash": "a"*64}) as plan, \
                  patch.object(cli, "write_json") as write:
                 code, _, _ = self.run_cli(["subtitles", "plan", "--out", "fixture.json", *suffix])

@@ -16,7 +16,7 @@ from . import catalog, engine, naming, onboarding, storage
 from .safety import SafetyError, digest, no_symlinks, write_json
 
 PROFILE_NAME = "Samurai English"  # Exact historical receipt alias, not the new display default.
-DEFAULT_PROVIDERS = ("gestdown", "yifysubtitles")
+DEFAULT_PROVIDERS = ("gestdown",)
 PROVIDERS = {"gestdown": {"scope": "series", "credentials": ()},
              "yifysubtitles": {"scope": "movies", "credentials": ()},
              "opensubtitlescom": {"scope": "series_and_movies", "credentials": ("username", "password")}}
@@ -129,6 +129,7 @@ def save_provider_credentials(c, provider, supplied):
             or any(not isinstance(v, str) or not 1 <= len(v) <= 256
                    or any(ord(ch) < 32 or ord(ch) == 127 for ch in v) for v in supplied.values())):
         raise SafetyError("Provide the subtitle provider username and password through hidden private input")
+    _account_username(provider, supplied)
     path = root / "secrets" / ("subtitle-provider-" + provider + ".json")
     value = {"schema_version": 1, **_binding(c), "credentials": supplied}
     if path.exists() and onboarding._private_json(path) != value:
@@ -136,6 +137,13 @@ def save_provider_credentials(c, provider, supplied):
     if not path.exists():
         write_json(path, value)
     return provider
+
+
+def _account_username(provider, credentials):
+    # The .com API rejects email logins even though the website accepts them.
+    # Fail before persisting input or causing a native authentication throttle.
+    if provider == "opensubtitlescom" and "@" in credentials["username"]:
+        raise SafetyError("OpenSubtitles.com requires the account username, not an email address")
 
 
 def _credentials(c, providers):
@@ -151,6 +159,7 @@ def _credentials(c, providers):
                     or any(not isinstance(v, str) or not 1 <= len(v) <= 256
                            or any(ord(ch) < 32 or ord(ch) == 127 for ch in v) for v in creds.values())):
                 raise SafetyError("Subtitle provider private input is invalid")
+            _account_username(name, creds)
             result[name] = creds
     return result
 
@@ -234,13 +243,15 @@ def _receipt(c, path):
 
 def _plan(c, providers, runner, request, resolver):
     root, path = _paths(c)
+    receipt = _receipt(c, path)
+    if providers is None:
+        providers = receipt["providers"] if receipt else DEFAULT_PROVIDERS
     providers = _providers(providers)
     _space(c, runner)
     target = _target(c, providers, runner)
     creds = _credentials(c, providers)
     api = _Api(c, request, resolver or engine.secret_resolver(c))
     before = _snapshot(api)
-    receipt = _receipt(c, path)
     matches = [row for row in before["profiles"] if row.get("name") in {PROFILE_NAME, profile_name(c)}]
     accepted = [receipt["profile"]] if receipt else []
     if receipt:
@@ -266,6 +277,8 @@ def _plan(c, providers, runner, request, resolver):
     changes = {key: value for key, value in general.items() if before["settings"]["general"].get(key) != value}
     value = {"schema_version": 1, "kind": "subtitle-future-policy", **_binding(c), "target": target,
              "providers": providers, "input_digest": digest(creds), "snapshot_digest": digest(before),
+             "provider_scopes": {name: PROVIDERS[name]["scope"] for name in providers},
+             "movie_provider_configured": any(PROVIDERS[name]["scope"] in {"movies", "series_and_movies"} for name in providers),
              "receipt_digest": digest(receipt), "profile": desired, "create_profile": not bool(matches),
              "repair_profile": repair, "profile_policy_version": 3,
              "profile_action": "rename_owned_profile" if relabel else "repair_owned_legacy_profile" if repair else "create" if not matches else "verify",
@@ -276,7 +289,7 @@ def _plan(c, providers, runner, request, resolver):
     return value, before, creds, api, path
 
 
-def plan(c, providers=DEFAULT_PROVIDERS, *, runner=None, request=None, secret_resolver=None):
+def plan(c, providers=None, *, runner=None, request=None, secret_resolver=None):
     return _plan(c, providers, runner or engine.run, request or engine.request, secret_resolver)[0]
 
 
@@ -297,11 +310,17 @@ def _assert_policy(api, desired, providers):
     states = {name: next(row.get("status") for row in rows if row.get("name") == name) for name in providers}
     if any(not isinstance(state, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_ .:-]{0,95}", state) for state in states.values()):
         raise SafetyError("Bazarr returned an unsupported subtitle provider status")
+    notifications = ["Provider is throttled or unavailable: " + name for name, state in states.items() if state != "Good"]
+    movie_provider = any(PROVIDERS[name]["scope"] in {"movies", "series_and_movies"} for name in providers)
+    if not movie_provider:
+        notifications.append("No movie subtitle provider is configured; add an OpenSubtitles.com account for film searches")
+    if "yifysubtitles" in providers:
+        notifications.append("YIFY is a retained legacy provider with known connection failures; it is not recommended for new setup")
     return after, {"ok": True, "scope": "future_additions_only", "profile_id": desired["profileId"],
                    "language": "English", "existing_media_assigned": 0, "embedded_subtitles_satisfy_profile": True,
                    "provider_scopes": {name: PROVIDERS[name]["scope"] for name in providers},
                    "provider_status": states, "subtitle_delivery": "not_tested",
-                   "notifications": ["Provider is throttled or unavailable: " + name for name, state in states.items() if state != "Good"]}
+                   "movie_provider_configured": movie_provider, "notifications": notifications}
 
 
 def _assert_credentials(after, creds):
@@ -357,9 +376,12 @@ def apply(c, reviewed_plan, *, runner=None, request=None, secret_resolver=None):
             else:
                 form.append((field, str(value).lower() if type(value) is bool else str(value)))
         for name, values in creds.items():
-            form.extend(("settings-" + name + "-" + key, value) for key, value in values.items())
-            form.extend([("settings-opensubtitlescom-include_ai_translated", "false"),
-                         ("settings-opensubtitlescom-include_machine_translated", "false")])
+            actual = before["settings"].get(name, {})
+            form.extend(("settings-" + name + "-" + key, value) for key, value in values.items()
+                        if actual.get(key) != value)
+            for flag in ("include_ai_translated", "include_machine_translated"):
+                if actual.get(flag) is not False:
+                    form.append(("settings-" + name + "-" + flag, "false"))
         if form:
             api.call("POST", "/system/settings", form)
         after, report = _assert_policy(api, current["profile"], current["providers"])

@@ -5,7 +5,7 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.2.6.** A staged private media-server installer for the documented Linux guest path, including CPU-only machines. Recorded checks cover real accounts, imports, restores, playback and controlled VPN failure/recovery, with their exact scope in [validation](docs/VALIDATION.md). Commission each new installation's storage, provider accounts, playback and any selected notification delivery before handing it over. See [supported scope](docs/ROADMAP.md) for the remaining boundaries.
+**0.2.7.** A staged private media-server installer for the documented Linux guest path, including CPU-only machines. Recorded checks cover real accounts, imports, restores, playback and controlled VPN failure/recovery, with their exact scope in [validation](docs/VALIDATION.md). Commission each new installation's storage, provider accounts, playback and any selected notification delivery before handing it over. See [supported scope](docs/ROADMAP.md) for the remaining boundaries.
 
 ## Start here
 
@@ -16,7 +16,7 @@ downloads, files, subtitles, maintenance and troubleshooting. The
 acceptance checks. You do not need to run the installer to use Jellyfin.
 
 Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
-`SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.6).
+`SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7).
 Copy both files into the same directory in the VM, open a terminal there, then run:
 
 ```sh
@@ -46,7 +46,7 @@ checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.sh` from the
-[0.2.6 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.6),
+[0.2.7 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7),
 check its supplied `SHA256SUMS` and follow the upgrade path below as root.
 
 **Upgrading an existing 0.2.0/0.2.1 local-disk installation:** first use
@@ -81,7 +81,7 @@ If the machine still runs Windows or has important files on its disks, first cho
 | **3. Set up media** | Jellyfin, Seerr, Sonarr, Radarr, Prowlarr and Bazarr, with optional SABnzbd. Enrolls administrator and separate everyday viewer access, saves private API keys, enables hardlinks, selects the owned Jellyfin libraries in Seerr and connects the apps. Usenet setup tests verified TLS and NNTP authentication in the terminal. |
 | **4. Set up VPN torrents** | qBittorrent behind Gluetun, protocol-specific hidden credential prompts, normal magnet entry and application connections. |
 | **5. Set up management** | Dockge/Kuma terminal owner enrollment or existing-owner authentication, with named private TCP monitors. Optional Homarr and notification delivery have separate checks. |
-| **6. Add photos or music** | Choose Immich or Navidrome/slskd, with optional Music Assistant. Add these when you can finish their account, backup or playback checks. |
+| **6. Add photos or music** | Immich has terminal owner enrollment, lean resource defaults and a reviewed quota. Optional music has separate account/playback commissioning. Add extras when you can finish their backup or playback checks. |
 
 Run `./setup 3` to open media directly, or `./setup 4` to return to VPN torrents. These are **guided menu numbers**; the advanced engine has separate stage IDs. The installer handles that mapping.
 

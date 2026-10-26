@@ -61,6 +61,26 @@ def clean_path(path):
             raise ValueError('managed path contains a symlink')
 
 
+def extras_ready(c, root, app, stage, *, usage=None):
+    if stage not in {5, 6}:
+        return
+    if usage is None:
+        from shutil import disk_usage
+        usage = disk_usage
+    role = {5: 'photos', 6: 'music'}[stage]
+    settings = c.get('extras', {}).get(role, {})
+    for key, location, default in [('data', root, 50), ('app', app, 20)]:
+        floor = settings.get(key + '_reserve_gib', default)
+        if type(floor) is not int or floor < 1 or usage(location).free <= floor * 1024**3:
+            raise ValueError('optional service capacity floor reached')
+    hold = app / 'state' / 'extras-capacity-hold.json'
+    clean_path(hold)
+    if hold.exists():
+        recorded = json.loads(hold.read_text())
+        if recorded.get('deployment_id') != c['deployment_id'] or stage in recorded.get('stages', []):
+            raise ValueError('optional service capacity hold requires review')
+
+
 def main():
     try:
         c = json.loads(Path(sys.argv[1]).read_text())
@@ -98,6 +118,8 @@ def main():
             clean_path(path)
             if not path.is_dir():
                 raise ValueError('required data directory missing')
+        stage = int(sys.argv[2]) if len(sys.argv) > 2 else None
+        extras_ready(c, root, app, stage)
         # Permission readback must use the application identity, not root.
         import os
         if os.geteuid() == 0:

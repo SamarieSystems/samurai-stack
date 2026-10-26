@@ -12,7 +12,8 @@ def build(destination, *, root=None):
     root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
     destination = Path(destination)
     dependencies = ('__init__.py', 'catalog.py', 'engine.py', 'hardlinks.py',
-                    'integrations.py', 'naming.py', 'safety.py', 'storage.py', 'runtime_guard.py')
+                    'integrations.py', 'naming.py', 'safety.py', 'storage.py', 'runtime_guard.py',
+                    'extras.py')
     values = {'__main__.py': b'from samurai_stack.hardlinks import main\nraise SystemExit(main())\n'}
     for name in ('LICENSE', *('samurai_stack/' + item for item in dependencies)):
         source = root / name

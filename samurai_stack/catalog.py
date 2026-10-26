@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
-from . import naming
+from . import naming, extras
 
 
 # Immutable multi-platform indexes validated 2026-10-24. See docs/IMAGES.md.
@@ -240,7 +240,8 @@ def _photos(config: dict) -> dict:
                    "environment": {"TZ": config["timezone"], "DB_HOSTNAME": "database",
                                    "DB_USERNAME": "postgres", "DB_DATABASE_NAME": "immich",
                                    "DB_PASSWORD_FILE": "/run/secrets/immich_db_password",
-                                   "REDIS_HOSTNAME": "redis"},
+                                   "REDIS_HOSTNAME": "redis", "CPU_CORES": "1",
+                                   "NODE_OPTIONS": "--max-old-space-size=1024", "UV_THREADPOOL_SIZE": "2"},
                    "secrets": ["immich_db_password"],
                    "depends_on": {"database": {"condition": "service_healthy"},
                                   "redis": {"condition": "service_healthy"}},
@@ -249,6 +250,8 @@ def _photos(config: dict) -> dict:
     ml = _base(config, "immich-machine-learning", storage=False)
     ml["user"] = f"{config['puid']}:{config['pgid']}"
     ml["volumes"] = [_bind(_app(config, "immich-machine-learning"), "/cache")]
+    ml["environment"] = {"MACHINE_LEARNING_WORKERS": "1", "MACHINE_LEARNING_REQUEST_THREADS": "1",
+                         "MACHINE_LEARNING_MODEL_INTRA_OP_THREADS": "1", "MACHINE_LEARNING_MODEL_TTL": "60"}
     db = _base(config, "database", storage=False)
     db.update({"environment": {"POSTGRES_USER": "postgres", "POSTGRES_DB": "immich",
                                "POSTGRES_PASSWORD_FILE": "/run/secrets/immich_db_password",
@@ -261,7 +264,11 @@ def _photos(config: dict) -> dict:
     redis.update({"volumes": [_bind(_app(config, "immich-redis"), "/data")],
                   "healthcheck": {"test": ["CMD", "redis-cli", "ping"],
                                   "interval": "15s", "timeout": "5s", "retries": 10}})
-    return {"immich-server": server, "immich-machine-learning": ml, "database": db, "redis": redis}
+    services = {"immich-server": extras.limited(server, "2g", 1),
+                "database": extras.limited(db, "2g", 0.5), "redis": extras.limited(redis, "128m", 0.25)}
+    if extras.options(config, "photos").get("machine_learning", True):
+        services["immich-machine-learning"] = extras.limited(ml, "2g", 1)
+    return services
 
 
 def _music(config: dict) -> dict:

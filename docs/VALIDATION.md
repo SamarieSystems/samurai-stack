@@ -3,6 +3,61 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.7: Native photos and delivered English subtitles
+
+October 26, 2026. The final Windows suite completed 1,104 tests with 47
+explicit platform/runtime skips and no failures. Focused native-target,
+credential-race and guided-provider tests also ran under actual unprivileged
+Linux UID 65534. The public guide builder checked 39 documents and 212 internal
+links with zero broken internal links or external runtime resources.
+
+- A new optional CPU-only Immich project on an existing Debian guest enrolled
+  five native users. Two administrators could access native configuration;
+  three normal users received 403. Existing media accounts and twelve core
+  containers were preserved. All photo users had native 2 GiB quotas.
+- Real cgroups matched the server/database/cache memory and CPU bounds. The
+  three photo containers used about 1.45 GiB combined at the measured idle
+  snapshot, with no OOMs or restarts. This is not a peak-load or simultaneous
+  video-transcoding benchmark. ML was disabled, all fifteen native queues were
+  limited to one worker, and FFmpeg used one thread. Strict native readback
+  preserved other configuration fields.
+- A generated 1,495-byte PNG uploaded successfully, its authenticated original
+  download matched SHA256, and a real WebP thumbnail was generated. The original
+  was on the existing data filesystem, with PostgreSQL on local application
+  storage. Accounts, quotas, policy and the canary survived a photo-stage
+  restart. A separate enrolled offsite client performed fresh login and exact
+  original download through the private overlay endpoint.
+- A consistent native PostgreSQL custom dump restored into a fresh isolated
+  container using the matched pinned image, no network or ports, and bounded
+  resources. Five user records, password hashes, roles, quotas, native policy,
+  extensions and the single generated asset matched. The dump and test original
+  were copied off the VM and hash-verified. This qualifies the fresh database
+  and canary recovery path, not a future complete personal-library disaster
+  recovery exercise or an ongoing independent backup schedule.
+- The public photo helper's target checks and existing-owner verification
+  passed on that live installation without native account/configuration writes.
+  Unit faults cover foreign/replaced datastores, command overlays, DB/PGDATA
+  redirects, stale or tampered plans, credential replacement during a claim,
+  failed signup review, quota readback and unrelated-field preservation.
+- OpenSubtitles.com downloaded an English subtitle for an existing film with
+  a 100 percent file-hash match: 91,223 bytes and 1,342 timed cues. Native Bazarr
+  history and the actual sidecar agreed. All 291 pre-existing subtitle files
+  and the original video passed byte/hash and file-identity checks. YIFY was
+  disabled; Gestdown and TLS verification remained enabled. A website email
+  login had first failed against the username-only API; the confirmed account
+  username resolved it. The installer now rejects that mismatch before a
+  vendor request and tests saved-provider preservation.
+- Capacity tests stop only owned optional-stage units, retain a persistent
+  hold and do not resume after space recovers. Failed/malformed mount queries
+  and fallback OS filesystems fail closed. A reviewed native capacity receipt
+  refresh retained the existing media floors, torrent settings and queue.
+- Packaging checks caught and repaired a missing optional-policy dependency
+  in the standalone hardlink repair bundle. A guided-subtitle fixture was also
+  updated to fail fast rather than accidentally request a real terminal
+  password during tests. Music prototype changes were preserved privately and
+  excluded from this release; no new music deployment or VPN qualification is
+  claimed here.
+
 ## 0.2.6: Reviewed request quality choices
 
 October 26, 2026. The Windows suite completed 1,061 tests with 46 explicit

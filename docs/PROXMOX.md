@@ -9,6 +9,11 @@ Installing Proxmox remains a separate operator task because selecting the wrong
 installer target can destroy existing data. Finish that installation first and
 keep a tested backup of any existing important data.
 
+Integrated graphics can be used by Jellyfin, but VM passthrough requires separate
+firmware and IOMMU-group verification. See [hardware acceleration](HARDWARE-ACCELERATION.md)
+before changing GPU ownership; the foundation installer deliberately leaves it
+alone.
+
 ## Configuration
 
 The Python API receives the `proxmox` subsection, not the entire deployment

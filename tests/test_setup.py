@@ -85,6 +85,51 @@ class GuidedSetupTests(unittest.TestCase):
         self.assertEqual(['profiles', 'plan'], invoke.call_args.args[0][:2])
         self.assertNotIn('--global-sizes', invoke.call_args.args[0])
 
+    def subtitle_fixture(self):
+        from samurai_stack import subtitle_setup
+        self.c['install_root'] = str(self.root / 'subtitle-apps')
+        (Path(self.c['install_root']) / 'secrets').mkdir(parents=True)
+        stack = ExitStack(); self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(self.ui, '_state_dir', return_value=self.root))
+        planned = stack.enter_context(mock.patch.object(subtitle_setup, 'plan', side_effect=lambda c, p: {'providers': list(p), 'review_hash': 'a' * 64}))
+        applied = stack.enter_context(mock.patch.object(subtitle_setup, 'apply', return_value={'ok': True, 'scope': 'future_additions_only'}))
+        saved = stack.enter_context(mock.patch.object(subtitle_setup, 'save_provider_credentials'))
+        return planned, applied, saved
+
+    def test_subtitle_setup_without_account_discloses_tv_only_and_never_asks_for_secrets(self):
+        planned, applied, saved = self.subtitle_fixture()
+        self.read.side_effect = ['no', 'yes']
+        self.ui.secret_fn = mock.Mock()
+        self.assertTrue(self.ui.subtitles(self.c))
+        self.assertEqual(planned.call_args.args[1], ('gestdown',))
+        self.assertTrue(any('Movie subtitle searches will remain unconfigured' in v for v in self.messages))
+        self.ui.secret_fn.assert_not_called(); saved.assert_not_called(); applied.assert_called_once()
+
+    def test_subtitle_setup_uses_hidden_com_login_and_never_echoes_password(self):
+        planned, applied, saved = self.subtitle_fixture()
+        self.read.side_effect = ['yes', 'yes']
+        self.ui.secret_fn = mock.Mock(side_effect=['fixture-provider-user', 'fixture-provider-private'])  # release-audit: synthetic - subtitle account fixture
+        self.assertTrue(self.ui.subtitles(self.c))
+        self.assertEqual(planned.call_args.args[1], ('gestdown', 'opensubtitlescom'))
+        saved.assert_called_once_with(self.c, 'opensubtitlescom', {'username': 'fixture-provider-user', 'password': 'fixture-provider-private'})  # release-audit: synthetic - subtitle account fixture
+        self.assertNotIn('fixture-provider-private', '\n'.join(self.messages))
+        applied.assert_called_once()
+
+    def test_subtitle_setup_email_input_stops_before_password_storage_or_vendor_plan(self):
+        planned, applied, saved = self.subtitle_fixture()
+        self.read.return_value = 'yes'
+        self.ui.secret_fn = mock.Mock(return_value='fixture-provider@example.invalid')
+        self.assertFalse(self.ui.subtitles(self.c))
+        self.assertEqual(self.ui.secret_fn.call_count, 1)
+        planned.assert_not_called(); saved.assert_not_called(); applied.assert_not_called()
+
+    def test_subtitle_setup_interrupted_password_never_stores_partial_login(self):
+        planned, applied, saved = self.subtitle_fixture()
+        self.read.return_value = 'yes'
+        self.ui.secret_fn = mock.Mock(side_effect=['fixture-provider-user', ''])
+        self.assertFalse(self.ui.subtitles(self.c))
+        planned.assert_not_called(); saved.assert_not_called(); applied.assert_not_called()
+
     def test_restored_accounts_decline_never_updates_receipt(self):
         document = {'review_hash': 'b' * 64, 'changes': [{'app': 'sonarr'}]}
         with mock.patch.object(self.ui, 'invoke', return_value=(0, document)) as invoke:

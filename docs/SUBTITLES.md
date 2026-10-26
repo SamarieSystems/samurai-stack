@@ -1,11 +1,14 @@
 # English subtitles
 
 Run `./setup 3` to review the optional Bazarr policy after the media applications
-are connected. It uses Gestdown for TV and YIFY Subtitles for films. Both are
-account-free providers included in the pinned Bazarr image. Provider coverage,
-rate limits and subtitle availability can change independently of this stack.
+are connected. New setup uses Gestdown for account-free TV searches and offers
+an optional OpenSubtitles.com account for TV and film searches. Skipping that
+account leaves movie subtitle searches unconfigured; existing embedded and
+sidecar movie subtitles still work. YIFY has demonstrated external connection
+failures and is no longer a default. Provider coverage, rate limits and subtitle
+availability can change independently of this stack.
 
-The installer adds one `Samurai English` language profile and selects it for
+The installer adds one `English | <media-project>` language profile and selects it for
 **future additions only**. Existing media keeps its current profile. Existing
 profiles, embedded subtitle tracks, SRT files and ASS files are preserved.
 English embedded subtitles satisfy the profile, so another copy is unnecessary.
@@ -49,17 +52,36 @@ Inspect that private plan, then apply its exact `review_hash`:
 ./stack --config /path/to/site.json subtitles verify
 ```
 
-`--providers gestdown,yifysubtitles` can be supplied to `subtitles plan`. The
+`--providers gestdown,opensubtitlescom` can be supplied to `subtitles plan` after
+the private account input is saved. Omitting `--providers` keeps a receipt's
+existing provider choices; on a new installation it selects Gestdown only. The
 provider files must exist in the owned pinned Bazarr container, and the running
 service must register the chosen providers. Unsupported providers, including
 Whisper and embedded-track extraction, are rejected by this policy.
 
-The internal Python API also supports an optional OpenSubtitles.com username and
-password through `save_provider_credentials`. It stores these in a root-private
+The guided setup asks for an optional OpenSubtitles.com username and password
+through hidden terminal prompts. The internal Python API uses the same
+`save_provider_credentials` operation. It stores these in a root-private
 input file and never accepts them as command-line values. Selecting that provider
 requires its existing private input and verifies the saved fields while excluding
 AI and machine-translated subtitle results. The default guided setup does not
-require an external subtitle account.
+require an external subtitle account for TV searches.
+
+Use the **OpenSubtitles.com account username**, not its email address. The website
+and API have different login requirements; the installer rejects email input
+before changing Bazarr. An OpenSubtitles.org login is a separate provider login
+and is not substituted automatically. Bazarr supplies its application API key;
+this integration does not require a personal developer API key. The account's
+provider quota and rate limits still apply.
+
+To add movie searches or replace a legacy YIFY selection after saving private `.com` input,
+review a plan with `--providers gestdown,opensubtitlescom`, then apply its exact
+hash using the commands above. This retains Gestdown for TV and removes YIFY from
+the enabled provider list. It preserves the language profile, existing title
+assignments and subtitle files. Provider registration is still not delivery
+proof: a successful single-title test must produce a valid new English sidecar
+and a matching Bazarr download-history entry. A queued or completed search job
+without those artifacts is not a successful subtitle download.
 
 ## Existing-library processing
 

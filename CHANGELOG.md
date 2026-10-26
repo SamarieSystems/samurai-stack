@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.7 - 2026-10-26
+
+- Enroll a proven-new Immich owner through the terminal and native API. Bind
+  first-run authority to the host, live datastore, exact image and reviewed
+  private input. Existing owners use their current login; no password or
+  existing photo library is reset. Interrupted claims have an explicit review.
+- Default guided photos to CPU mode with ML disabled, bounded container memory
+  and CPU, one worker per native background queue, one FFmpeg thread and a
+  reviewed owner quota. Preserve all other native settings and accounts.
+- Add an optional-stage capacity stop timer with persistent review holds.
+  A missing/unprovable backing mount or exhausted floor cannot redirect photo
+  writes onto the OS disk. No data is deleted or work automatically resumed.
+- Stop selecting YIFY for new subtitle setups. Explain Gestdown's TV-only
+  coverage and offer hidden OpenSubtitles.com account input for films. Reject
+  email logins before contacting its username-only API, preserve saved provider
+  choices and avoid unchanged credential/settings writes.
+- Keep the standalone hardlink repair bundle complete after the new optional
+  policy dependency. Document integrated-GPU firmware/device prerequisites and
+  the difference between native photo readiness and an independent restore.
+- Keep music commissioning separate. The unvalidated music prototype is not
+  part of this photos/subtitle release.
+
 ## 0.2.6 - 2026-10-26
 
 - Supersede the unpublished v0.2.5 tag after Linux CI exposed a test-fixture

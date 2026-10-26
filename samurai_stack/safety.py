@@ -186,4 +186,6 @@ def validate_config(c):
             for v in value:
                 check(v)
     check(c)
+    from .extras import validate as validate_extras
+    validate_extras(c)
     return c

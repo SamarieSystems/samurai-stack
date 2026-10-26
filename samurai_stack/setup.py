@@ -882,10 +882,31 @@ class GuidedSetup:
             providers = saved['providers']
         else:
             providers = subtitle_setup.DEFAULT_PROVIDERS
+            self.say('Gestdown supplies account-free TV searches. Movie subtitle searches need an optional OpenSubtitles.com account.')
+            private = no_symlinks(Path(c['install_root']) / 'secrets/subtitle-provider-opensubtitlescom.json')
+            if self.yes('Add an existing OpenSubtitles.com account for TV and film searches?', private.exists()):
+                if private.exists():
+                    subtitle_setup._credentials(c, ['opensubtitlescom'])
+                    self.say('Your saved private OpenSubtitles.com login will be kept.')
+                else:
+                    self.say('Use the .com account username, not its email or an OpenSubtitles.org login. No new account is created.')
+                    username = self.private_input('OpenSubtitles.com account username (not email)')
+                    if username is None:
+                        return False
+                    if '@' in username:
+                        self.say('OpenSubtitles.com requires the account username, not an email address. No login was saved or tested.')
+                        return False
+                    password = self.private_input('OpenSubtitles.com account password')
+                    if password is None:
+                        return False
+                    subtitle_setup.save_provider_credentials(c, 'opensubtitlescom', {'username': username, 'password': password})
+                providers = (*providers, 'opensubtitlescom')
+            else:
+                self.say('Movie subtitle searches will remain unconfigured. Existing embedded and sidecar subtitles still work.')
         document = document or subtitle_setup.plan(c, providers)
         if document.get('repair_profile'):
             self.say('This repairs the exact earlier installer-created English profile item keys. A complete private before snapshot is saved first; other profiles and assigned title IDs are kept.')
-        self.say('Selected providers: ' + ', '.join(document['providers']) + '. The default Gestdown/ YIFY selection is account-free and covers TV and films.')
+        self.say('Selected providers: ' + ', '.join(document['providers']) + '. Provider coverage and account quotas apply; registration does not prove delivery.')
         self.say('This sets the English profile only for future additions, counts embedded subtitles, and uses one job at a time.')
         self.say('Existing profiles and subtitle files are kept. Upgrades, AI, postprocessing and scheduled backlog searches are disabled.')
         self.say('The selected provider list replaces the enabled-provider selection; saved provider credentials are kept.')
@@ -1105,6 +1126,67 @@ class GuidedSetup:
         self.say('Interfaces remain private; Dockge controls this guest only. Homarr, if enabled, still needs its own account.')
         return self.wire(4)
 
+    def photo_owner(self, c):
+        from . import photos_setup
+        saved = engine.secret_path(c, 'photos-owner.json')
+        if saved.exists():
+            try:
+                report = photos_setup.verify(c)
+                self.say('Immich owner login and resource policy passed; existing accounts were kept.')
+                return report.get('ok') is True
+            except SafetyError:
+                self.say('Saved photo login or resource policy needs review; no account was reset.')
+                if not self.yes('Keep saved login input and review the resource policy?', True):
+                    if not self.yes('Correct only the saved private login input? This does not change an Immich password.', False):
+                        return False
+                    saved_input = False
+                else:
+                    saved_input = True
+        else:
+            saved_input = False
+        if not saved_input:
+            photos_setup.check_target(c)
+            status = engine.request('GET', catalog.stage_endpoints(c, 5)['immich-server'] + '/api/server/config')
+            existing = status.get('isInitialized') is True
+            self.say('Immich uses an email-shaped login. For an existing server, use its CURRENT owner email and password.')
+            while True:
+                email = self.read('Photo owner email/login, or Enter to pause: ').strip()
+                if not email:
+                    return False
+                if re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
+                    break
+                self.say('Enter a complete email-shaped login. It is not sent to an email service by this installer.')
+            display = self.read('Photo owner display name [Administrator]: ').strip() or 'Administrator'
+            password = None
+            media = engine.secret_path(c, 'onboarding_credentials.json')
+            if not existing and media.exists() and self.yes('Use the saved media administrator password for this NEW photo owner?', True):
+                from .onboarding import _private_json
+                password = _private_json(media).get('admin_password')
+            if password is None:
+                while True:
+                    password = self.private_input('Current photo owner password' if existing else 'New photo owner password')
+                    if password is None:
+                        return False
+                    if existing:
+                        break
+                    repeated = self.private_input('Repeat new photo owner password')
+                    if password == repeated and 12 <= len(password) <= 256:
+                        break
+                    self.say('Use matching passwords with 12-256 characters.')
+            photos_setup.save_credentials(c, {'email': email, 'password': password, 'name': display}, replace=saved.exists())
+        document = photos_setup.plan(c)
+        review = self._state_dir() / ('photos-' + uuid.uuid4().hex + '.json')
+        write_json(review, document)
+        self.say('Photo setup: ' + document['action'] + '; bound background jobs and FFmpeg to one worker/thread, preserve assets and other settings.')
+        self.say('Detailed private review: ' + str(review))
+        if not self.yes('Apply this reviewed photo setup?', True):
+            return False
+        report = photos_setup.apply(c, document, document['review_hash'])
+        write_json(self._state_dir() / ('photos-result-' + uuid.uuid4().hex + '.json'), report)
+        self.say('Immich owner and resource policy passed. No personal photos were imported.')
+        self.say('Keep originals elsewhere until an upload/download and an independent originals-plus-database restore have been tested.')
+        return report.get('ok') is True
+
     def extras(self):
         c = self.config()
         self.say('Optional extras: 1 Photos (Immich), 2 Music (Navidrome/slskd), Enter to skip.')
@@ -1124,6 +1206,12 @@ class GuidedSetup:
             backup = self._state_dir() / ('site-before-' + uuid.uuid4().hex + '.json')
             write_json(backup, load_config(self.config_path))
             self._save_configuration(c)
+        if stage == 5:
+            settings = c.setdefault('extras', {}).setdefault('photos', {})
+            if 'machine_learning' not in settings:
+                settings['machine_learning'] = False
+                self._save_configuration(c)
+            self.say('Photo machine learning is ' + ('enabled by your saved configuration.' if settings['machine_learning'] else 'disabled for the lean shared-server configuration.'))
         if stage == 6:
             for name in ('soulseek_username', 'soulseek_password'):
                 if not self.secret(c, name, 'Enter your own ' + name + '.'):
@@ -1132,7 +1220,9 @@ class GuidedSetup:
             return False
         self.endpoints(c, stage)
         if stage == 5:
-            self.say('Create the Immich owner, finish onboarding, then test an upload and an isolated backup restore.')
+            if not self.photo_owner(c):
+                return False
+            return self.wire(5)
         else:
             self.say('Enroll Navidrome, play a real track, verify Soulseek connectivity and review the paths.')
         if not self.yes('Ready to check the extra?', False):

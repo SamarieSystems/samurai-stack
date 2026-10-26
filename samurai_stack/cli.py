@@ -100,6 +100,11 @@ def parser():
     init.add_argument("--example", action="store_true")
     commands.add_parser("validate", help="Validate configuration without writes")
     commands.add_parser("inspect", help="Read-only local mount/hardware/runtime inventory")
+    photos = commands.add_parser("photos", help="Review native Immich owner/resource setup; never reset accounts or import photos")
+    photos.add_argument("action", choices=["plan", "apply", "verify"])
+    photos.add_argument("--out", default="photos-plan.json")
+    photos.add_argument("--plan")
+    photos.add_argument("--accept-plan")
     hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
     hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
     profiles = commands.add_parser("profiles", help="Review bounded media profiles; explicit request choices can classify metadata-confirmed anime")
@@ -127,7 +132,7 @@ def parser():
     indexers.add_argument("--accept-plan")
     subtitles = commands.add_parser("subtitles", help="Review future English subtitle defaults; no existing-library backfill")
     subtitles.add_argument("action", choices=["plan", "apply", "verify"])
-    subtitles.add_argument("--providers", help="Plan-only comma-separated supported providers; default gestdown,yifysubtitles")
+    subtitles.add_argument("--providers", help="Plan-only comma-separated supported providers; keeps saved choices, new default gestdown (TV only)")
     subtitles.add_argument("--out", default="subtitles-plan.json")
     subtitles.add_argument("--plan")
     subtitles.add_argument("--accept-plan")
@@ -179,6 +184,17 @@ def main(argv=None):
             c = load_config(args.config)
             if args.command == "validate":
                 result = {"configuration": "valid", "version": __version__}
+            elif args.command == "photos":
+                from . import photos_setup
+                if args.action == "plan":
+                    result = photos_setup.plan(c)
+                    write_json(args.out, result)
+                elif args.action == "verify":
+                    result = photos_setup.verify(c)
+                else:
+                    if not args.plan or not args.accept_plan:
+                        raise SafetyError("Photo apply requires its saved plan and exact --accept-plan hash")
+                    result = photos_setup.apply(c, json.loads(private_read(args.plan)), args.accept_plan)
             elif args.command == "hardlinks":
                 from . import hardlinks
                 result = hardlinks.run(c, apply=args.apply)
@@ -251,7 +267,7 @@ def main(argv=None):
                 if args.action != "plan" and args.providers is not None:
                     raise SafetyError("Subtitle provider choices belong only in the reviewed plan")
                 if args.action == "plan":
-                    providers = args.providers.split(',') if args.providers is not None else subtitle_setup.DEFAULT_PROVIDERS
+                    providers = args.providers.split(',') if args.providers is not None else None
                     result = subtitle_setup.plan(c, providers)
                     write_json(args.out, result)
                 elif args.action == "verify":
