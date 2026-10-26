@@ -73,7 +73,7 @@ enough. Unknown state pauses for review, not an owner reset.
 
 The shortest update for an existing source ZIP uses the portable
 `samurai-setup.sh` asset from the
-[0.2.3 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.3).
+[0.2.4 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.4).
 Verify it against the supplied `SHA256SUMS`, then run as root on the media VM:
 
 ```sh
@@ -159,7 +159,7 @@ matching the running services.
 
 The portable release asset also performs this focused repair on machines
 using an older source ZIP. Obtain `samurai-setup.sh` and `SHA256SUMS` from the
-[0.2.3 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.3)
+[0.2.4 release](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.4)
 and verify the checksum before running it inside the media VM:
 
 ```sh

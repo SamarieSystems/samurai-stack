@@ -28,7 +28,7 @@ storage inventory are in [Deployment intake](../DEPLOYMENT-NIGHT.md).
 ## Download once, check once, launch
 
 Get **`samurai-setup.sh`** and **`SHA256SUMS`** from the
-[v0.2.3 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.3).
+[v0.2.4 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.4).
 Copy both into the same directory inside the Linux VM. Open an interactive
 terminal in that directory, inside the guest, not the Proxmox host console.
 
@@ -124,8 +124,11 @@ login privately. Never bypass the VPN to fix a paused download.
 
 Choose **5** for Dockge and Uptime Kuma. Supported new owners and named private
 listener monitors are enrolled in the terminal. Existing owners need their
-current password and are not reset. Configure your notification destination in
-Kuma and receive a test alert. Optional Homarr has separate onboarding.
+current password and are not reset. If you want alerts, configure the sending
+service and destination in Kuma and receive a test alert. Email requires an
+SMTP sender, not only a recipient. Otherwise record notifications as not
+enabled; the local dashboard checks still work. Optional Homarr has separate
+onboarding.
 
 ## 6. Optional extras
 

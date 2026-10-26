@@ -14,6 +14,16 @@ from .safety import SafetyError, no_symlinks, private_read
 
 PROJECT_ROLES = {2: "media", 3: "torrents", 4: "management", 5: "photos", 6: "music"}
 UNIT_ROOT = Path("/etc/systemd/system")
+SERVICE_TITLES = {
+    "sonarr": "Sonarr", "radarr": "Radarr", "prowlarr": "Prowlarr",
+    "bazarr": "Bazarr", "sabnzbd": "SABnzbd", "jellyfin": "Jellyfin",
+    "seerr": "Seerr", "qbittorrent": "qBittorrent", "gluetun": "Gluetun",
+    "port-sync": "Port forwarding", "dockge": "Dockge", "uptime-kuma": "Uptime Kuma",
+    "homarr": "Homarr", "socket-proxy": "Docker read proxy", "immich-server": "Immich",
+    "immich-machine-learning": "Immich machine learning", "database": "Photo database",
+    "redis": "Photo cache", "navidrome": "Navidrome", "slskd": "slskd",
+    "music-assistant": "Music Assistant",
+}
 
 
 def default_projects(deployment_name):
@@ -24,6 +34,13 @@ def default_projects(deployment_name):
 def project_name(config, stage):
     """Return the exact historic name unless this stage was explicitly named."""
     return config.get("compose_projects", {}).get(str(stage), config["deployment_name"] + "-" + str(stage))
+
+
+def service_label(config, service, stage):
+    """A service-first display label, separate from persistent installation IDs."""
+    if service not in SERVICE_TITLES or stage not in PROJECT_ROLES:
+        raise SafetyError("Unknown service or application stage for a display label")
+    return SERVICE_TITLES[service] + " | " + project_name(config, stage)
 
 
 def validate_projects(config):

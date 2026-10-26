@@ -27,6 +27,7 @@ class Vendor:
         self.fail_after, self.bad_good_login, self.anonymous, self.accept_bad = None, False, False, False
         self.test_success, self.stored_success, self.foreign_redirect = True, True, False
         self.bad_test_shape, self.wizard_stuck = False, False
+        self.ignore_provider_displayname = False
         self.inject_password_after_username = False
         self.observed_intents = []
 
@@ -101,6 +102,8 @@ class Session:
                 v.intent(provider_intent=True)
                 assert not any(row["name"] == keyword for row in v.servers), "Never overwrite an existing provider"
                 row = {key: value for key, value in form.items() if key not in {"mode", "output", "apikey", "section", "keyword"}}
+                if v.ignore_provider_displayname:
+                    row.pop("displayname", None)
                 row.update(name=keyword, password="*" * 10)
                 v.servers.append(row)
             if v.fail_after == keyword:
@@ -369,6 +372,7 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(existing, self.vendor.servers[0])
         target = self.vendor.servers[1]
         self.assertEqual("samurai-" + self.operation.c["deployment_id"], target["name"])
+        self.assertEqual("NNTP | news.example.test", target["displayname"])
         self.assertEqual(3, target["ssl_verify"])
         calls = [form for _, _, form in self.vendor.calls if form and form.get("mode") == "config" and form.get("name") == "test_server"]
         self.assertEqual(PROVIDER["password"], calls[-2]["password"])
@@ -385,6 +389,42 @@ class EnrollmentTests(unittest.TestCase):
                 with self.assertRaisesRegex(accounts._Manual, expected):
                     sab.configure_provider(self.operation, PROVIDER)
                 self.assertEqual([], self.vendor.servers)
+
+    def test_ignored_new_provider_displayname_does_not_claim_verified_or_overwrite_on_retry(self):
+        sab.enroll(self.operation)
+        self.vendor.ignore_provider_displayname = True
+        with self.assertRaisesRegex(accounts._Manual, "display label was not saved"):
+            sab.configure_provider(self.operation, PROVIDER)
+        self.assertFalse(self.entry.get("provider_verified", False))
+        self.assertEqual("NNTP | news.example.test", self.entry["provider_displayname"])
+        count = len(self.writes())
+        before = copy.deepcopy(self.vendor.servers)
+        with self.assertRaisesRegex(accounts._Manual, "display label was not saved"):
+            sab.configure_provider(self.operation, PROVIDER)
+        self.assertEqual(count, len(self.writes()))
+        self.assertEqual(before, self.vendor.servers)
+
+    def test_lost_provider_write_still_verifies_label_on_retry(self):
+        sab.enroll(self.operation)
+        self.vendor.ignore_provider_displayname = True
+        self.vendor.fail_after = "samurai-" + self.operation.c["deployment_id"]
+        with self.assertRaisesRegex(accounts._Manual, "did not finish"):
+            sab.configure_provider(self.operation, PROVIDER)
+        count = len(self.writes())
+        with self.assertRaisesRegex(accounts._Manual, "display label was not saved"):
+            sab.configure_provider(self.operation, PROVIDER)
+        self.assertEqual(count, len(self.writes()))
+        self.assertFalse(self.entry.get("provider_verified", False))
+
+    def test_verified_provider_custom_displayname_is_preserved(self):
+        sab.enroll(self.operation)
+        sab.configure_provider(self.operation, PROVIDER)
+        self.vendor.servers[0]["displayname"] = "My custom provider label"
+        before = copy.deepcopy(self.vendor.servers)
+        count = len(self.writes())
+        self.assertTrue(sab.configure_provider(self.operation, PROVIDER)["connection_verified"])
+        self.assertEqual(before, self.vendor.servers)
+        self.assertEqual(count, len(self.writes()))
 
     def test_lost_provider_write_response_resumes_without_duplicate_or_update(self):
         sab.enroll(self.operation)

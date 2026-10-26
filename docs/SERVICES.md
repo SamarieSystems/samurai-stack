@@ -111,11 +111,15 @@ configuration outside the source checkout.
    Jellyfin viewer for playback and Seerr requests.
 
 Configure uses the application-reported provider schemas and tests proposed
-connections before saving them. Names begin with `Samurai <deployment-name>`.
-Re-running it verifies those saved resources. A conflicting named resource is
-reported instead of overwritten; unrelated resources are not silently adopted.
+connections before saving them. New display labels put the service first and
+then the configured project, for example `SABnzbd | home-picturehouse` or
+`qBittorrent | home-courier`. Re-running configuration can relabel an exact
+legacy installer connection in place after verifying its original ID, target
+and settings. Read-only verification accepts the exact legacy alias without
+writing. Ambiguous or conflicting resources are refused; unrelated entries and
+custom library names are retained.
 For new Seerr connections, profile selection first prefers the optional
-deployment-named `1080p Original` profile when present, then an existing
+project-qualified `1080p Original` profile or its verified legacy name, then an existing
 `HD-1080p`, `HD - 1080p`, or `Any` profile, or the sole available profile.
 Existing Seerr choices are preserved. If none is unambiguous, select a profile
 in Seerr deliberately. A default Seerr server, its selected root and its profile
@@ -227,6 +231,22 @@ of silently creating replacement containers. Keep its saved configuration and
 use the original project identity until a deliberate migration is available.
 Numeric engine stages and systemd unit names stay unchanged by custom naming.
 
+### Display labels and installation identities
+
+Service labels in Kuma, Starr, Prowlarr and Seerr use the chosen project names,
+for example `Jellyfin | home-picturehouse` and `Uptime Kuma | home-control-room`.
+Putting the service first keeps the useful part visible in narrow navigation.
+An older `Samurai <installation> / <service>` Kuma label can be updated by the
+reviewed management step after its original monitor ID and exact listener
+settings pass comparison. The authenticated edit keeps its history, tags,
+notification links and owner settings. An old and new candidate both present,
+or a changed target, requires review instead of creating another monitor.
+
+These display changes retain the installation UUID, mounted data, Compose
+project identities and numeric systemd units. A label rename is separate from
+renaming an installed Compose project or moving application data. The registry,
+storage markers and service ownership still use their original identities.
+
 The toolkit's systemd units own guarded startup and shutdown. Use `apply` for
 toolkit changes and `systemctl` on `samurai-<deployment_name>-<stage>.service`
 for routine stage stop/restart operations. Dockge's detached deployment and
@@ -241,7 +261,11 @@ verifies named private TCP monitors without replacing unrelated monitors.
 Existing owner passwords are required; a rejected login does not authorize
 resetting an account. Optional Homarr onboarding remains separate.
 
-Choose the notification destination yourself. Kuma supports multiple
+Notifications are optional. Local Kuma checks work without SMTP or another
+outbound provider; record notifications as not enabled when they are not wanted.
+If selected, choose the notification destination and sending service yourself.
+Email needs an outgoing SMTP server/sender login as well as a recipient address.
+Kuma supports multiple
 destinations; Discord/MediaBot is not required. Send a test notification and
 trigger one controlled monitor failure. The installer cannot confirm an email
 or chat delivery just because a webhook field was saved. TCP monitor success

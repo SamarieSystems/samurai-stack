@@ -33,6 +33,13 @@ The examples below use installation name `homelab`, application storage `/opt/sa
 
 Dockge can read generated Compose files, show logs and open container terminals. A terminal inside a container is different from the VM's SSH shell. A command that checks VM disks belongs in the VM shell.
 
+Kuma and supported application connections display the service first, followed
+by its project, such as `Jellyfin | home-picturehouse`. Older managed labels
+can be reviewed and renamed in place while retaining their IDs and history.
+The installation's internal systemd name can remain unchanged; it is not the
+same thing as a display label. Never rename a generated service or Compose
+project just to make a dashboard label prettier.
+
 Samurai's systemd units supervise whole stages in the foreground. Dockge is another Docker controller. Stopping or redeploying individual containers underneath systemd can make systemd restart the stage or leave the two controllers disagreeing. Use one lifecycle authority: **systemd for generated Samurai projects**.
 
 ### What the statuses actually mean

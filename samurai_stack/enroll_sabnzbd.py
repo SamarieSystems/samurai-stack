@@ -328,15 +328,23 @@ def configure_provider(operation, provider):
         _fail("A deployment-named NNTP provider already exists; it was not adopted or overwritten")
     if not matches and entry.get("provider_verified"):
         _fail("The enrolled NNTP provider is missing; no replacement was created")
+    # Verify only a new provider's durable label intent. A previously verified
+    # provider may have been renamed deliberately and its custom label is kept.
+    expected_displayname = entry.get("provider_displayname") if not entry.get("provider_verified") else None
     # First test supplied settings; a failed connection must not create a server.
     if not api.test_server(timeout=10, **desired):
         _fail("NNTP TLS connection or authentication test failed; existing providers were preserved")
     if not matches:
-        operation.mark(APP, provider_intent=True, provider_identity=identity)
+        expected_displayname = "NNTP | " + desired["host"]
+        operation.mark(APP, provider_intent=True, provider_identity=identity,
+                       provider_displayname=expected_displayname)
         latest = api.servers()
         if latest != before:
             _fail("NNTP providers changed after review; no new provider was written")
-        api.call("set_config", section="servers", keyword=name, **desired)
+        # The stable private server key is an ownership identity, not a UI label.
+        # Only this new provider is named here; existing custom labels are kept.
+        api.call("set_config", section="servers", keyword=name,
+                 displayname=expected_displayname, **desired)
     after = api.servers()
     matches = [row for row in after if row["name"] == name]
     others = [row for row in after if row["name"] != name]
@@ -344,6 +352,8 @@ def configure_provider(operation, provider):
         _fail("Other NNTP provider settings changed during enrollment; inspect them before continuing")
     if len(matches) != 1 or any(matches[0].get(key) != value for key, value in identity.items()):
         _fail("NNTP provider settings differ from the reviewed input; no existing provider was overwritten")
+    if expected_displayname is not None and matches[0].get("displayname") != expected_displayname:
+        _fail("New NNTP provider display label was not saved; the provider was retained for review")
     if not _test_stored(api, matches[0]):
         _fail("Stored NNTP credentials did not pass the connection test; the provider was retained for review")
     session = _login(operation)

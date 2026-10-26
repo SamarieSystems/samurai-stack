@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from samurai_stack import management_setup as management, engine, catalog, onboarding
+from samurai_stack import management_setup as management, engine, catalog, naming, onboarding
 from samurai_stack.cli import default_config
 from samurai_stack.safety import SafetyError, write_json
 
@@ -220,6 +220,24 @@ class ManagementTests(unittest.TestCase):
         with database(self.root / "appdata" / name / management.DATABASES[name]) as db:
             db.execute('INSERT INTO "user" (username,password) VALUES (?,?)', (username, "fixture-hash"))
 
+    def add_monitor(self, row):
+        with database(self.root / "appdata/uptime-kuma/kuma.db") as db:
+            existing = {item[1] for item in db.execute('PRAGMA table_info("monitor")')}
+            for name, kind in {"name": "TEXT", "type": "TEXT", "hostname": "TEXT", "port": "INTEGER",
+                    "interval": "INTEGER", "retry_interval": "INTEGER", "maxretries": "INTEGER",
+                    "active": "INTEGER", "headers": "TEXT"}.items():
+                if name not in existing:
+                    db.execute('ALTER TABLE monitor ADD COLUMN "' + name + '" ' + kind)
+            db.execute('INSERT INTO monitor (' + ','.join('"' + name + '"' for name in row) + ') VALUES ('
+                       + ','.join('?' for _ in row) + ')', list(row.values()))
+
+    def legacy_row(self):
+        wanted = management.default_monitors(self.c)[0]
+        return {"id": 42, "name": management.legacy_monitor_names(self.c)[wanted["name"]],
+                "type": wanted["type"], "hostname": wanted["hostname"], "port": wanted["port"],
+                "interval": wanted["interval"], "retry_interval": wanted["retryInterval"],
+                "maxretries": wanted["maxretries"], "active": 1}
+
     def test_blank_owner_needs_explicit_claim_and_review_contains_no_credentials(self):
         with self.assertRaisesRegex(SafetyError, "explicit reviewed"):
             self.plan(False)
@@ -417,11 +435,69 @@ class ManagementTests(unittest.TestCase):
         self.assertTrue(management.verify(self.c, runner=self.host, request=self.request)["ok"])
         self.assertTrue(all(not p["allow_setup"] and not p["write_monitors"] for p in self.host.payloads))
 
+    def test_monitor_plan_reviews_same_id_label_change_and_hides_custom_private_fields(self):
+        for name in management.SERVICES:
+            self.add_user(name)
+        row = self.legacy_row()
+        self.add_monitor({**row, "headers": "fixture-private-header"})
+        document = self.plan(False)
+        action = next(item for item in document["monitor_actions"] if item.get("id") == 42)
+        self.assertEqual(action, {"action": "rename", "id": 42, "from": row["name"],
+                                 "name": management.default_monitors(self.c)[0]["name"]})
+        self.assertNotIn("fixture-private-header", json.dumps(document))
+        self.assertFalse(self.host.payloads)
+
+    def test_monitor_edit_invalidates_review_before_authentication_or_changes(self):
+        for name in management.SERVICES:
+            self.add_user(name)
+        self.add_monitor(self.legacy_row())
+        document = self.plan(False)
+        with database(self.root / "appdata/uptime-kuma/kuma.db") as db:
+            db.execute("UPDATE monitor SET headers=? WHERE id=42", ("fixture-private-change",))
+        with self.assertRaisesRegex(SafetyError, "review changed"):
+            self.apply(document)
+        self.assertFalse(self.host.payloads)
+        self.assertFalse((self.root / "secrets/management_credentials.json").exists())
+
+    def test_plan_refuses_duplicate_old_and_friendly_names_or_changed_listener(self):
+        for name in management.SERVICES:
+            self.add_user(name)
+        legacy = self.legacy_row()
+        self.add_monitor(legacy)
+        friendly = management.default_monitors(self.c)[0]["name"]
+        self.add_monitor({**legacy, "id": 43, "name": friendly})
+        with self.assertRaisesRegex(SafetyError, "ambiguous"):
+            self.plan(False)
+        with database(self.root / "appdata/uptime-kuma/kuma.db") as db:
+            db.execute("DELETE FROM monitor WHERE id=43")
+            db.execute("UPDATE monitor SET port=1 WHERE id=42")
+        with self.assertRaisesRegex(SafetyError, "differs"):
+            self.plan(False)
+        self.assertFalse(self.host.payloads)
+
+
+class MonitorDisplayTests(unittest.TestCase):
+    def test_service_first_labels_use_saved_projects_without_changing_identity(self):
+        c = default_config()
+        c["compose_projects"] = {"2": "house-picturehouse", "3": "house-courier", "4": "house-control-room"}
+        before = copy.deepcopy(c)
+        monitors = {row["port"]: row for row in management.default_monitors(c)}
+        self.assertEqual(monitors[8096]["name"], "Jellyfin | house-picturehouse")
+        self.assertEqual(monitors[8081]["name"], "qBittorrent | house-courier")
+        self.assertEqual(monitors[3001]["name"], "Uptime Kuma | house-control-room")
+        self.assertEqual(c, before)
+        self.assertEqual(naming.project_name(c, 2), "house-picturehouse")
+
+    def test_numbered_existing_projects_are_still_exact_identity(self):
+        c = default_config()
+        self.assertEqual(naming.service_label(c, "jellyfin", 2), "Jellyfin | homelab-2")
+        self.assertEqual(management.legacy_monitor_names(c)["Jellyfin | homelab-2"], "Samurai homelab / jellyfin")
+
 
 JS_RUNNER = r'''
 const fs=require("fs"),vm=require("vm"),input=JSON.parse(fs.readFileSync(0,"utf8"));
 const p=input.payload,f=input.fixture||{},handlers=new Map(),calls=[],output=[];
-let enrolled=!f.fresh,current=f.monitors||{},counter=Object.keys(current).length;
+let enrolled=!f.fresh,current=f.monitors||{},counter=Math.max(0,...Object.values(current).map(row=>Number(row.id)||0));
 function fire(name,...args){for(const fn of [...(handlers.get(name)||[])])fn(...args);}
 const s={on(name,fn){if(!handlers.has(name))handlers.set(name,[]);handlers.get(name).push(fn);return s;},
 off(name,fn){handlers.set(name,(handlers.get(name)||[]).filter(x=>x!==fn));return s;},close(){},timeout(){return s;},
@@ -431,6 +507,7 @@ emit(...args){const done=args.pop(),name=args[0];calls.push(name==="agent"?args[
  if(name==="login")return done(null,{ok:enrolled&&!f.badLogin});
  if(name==="getMonitorList"){if(!f.missingEvent)fire("monitorList",current);return done(null,{ok:true});}
  if(name==="add"){const row={...args[1],id:++counter};current[row.id]=row;return done(null,{ok:true,monitorID:row.id});}
+ if(name==="editMonitor"){const row=args[1];if(f.rejectEdit)return done(null,{ok:false});if(!current[row.id])return done(null,{ok:false});current[row.id]={...row};if(f.breakNotification)current[row.id].notificationIDList={};return done(null,{ok:true,monitorID:row.id});}
  if(name==="agent"&&args[2]==="requestStackList"){fire("agent","stackList",{ok:true,endpoint:"",stackList:f.missingStack?{}:{tools:{name:"tools",status:3}}});return done(null,{ok:true});}
  if(name==="agent"&&args[2]==="getStack")return done(null,{ok:true,stack:{name:args[3],isManagedByDockge:!f.foreign}});
  if(name==="agent"&&args[2]==="serviceStatusList")return done(null,{ok:true,serviceStatusList:{dockge:"healthy"}});
@@ -444,12 +521,13 @@ vm.runInNewContext(input.source,{require:mockRequire,console:{log:x=>output.push
 
 @unittest.skipUnless(shutil.which("node"), "Node protocol tests run in hosted/disposable Linux and available local runtimes")
 class SocketProtocolTests(unittest.TestCase):
-    def execute(self, service="uptime-kuma", allow=True, write=True, mode="verify", **fixture):
+    def execute(self, service="uptime-kuma", allow=True, write=True, mode="verify", review=None, **fixture):
         config = default_config()
         wanted = management.default_monitors(config)[:1]
         payload = {"service": service, "url": "http://127.0.0.1:3001", **CREDS,
             "allow_setup": allow, "write_monitors": write, "mode": mode,
-            "projects": ["tools"], "monitors": wanted}
+            "projects": ["tools"], "monitors": wanted,
+            "legacy_monitor_names": management.legacy_monitor_names(config), "monitor_review": review}
         result = subprocess.run([shutil.which("node"), "-e", JS_RUNNER],
             input=json.dumps({"source": management.SOCKET_SCRIPT, "payload": payload, "fixture": fixture}),
             capture_output=True, text=True, timeout=5, check=True)
@@ -514,6 +592,57 @@ class SocketProtocolTests(unittest.TestCase):
         result, _ = self.execute(mode="deny", badLogin=True)
         self.assertEqual(result["code"], 0)
         self.assertTrue(json.loads(result["output"][0])["login_denied"])
+
+    def test_reviewed_legacy_label_uses_supported_edit_and_preserves_id_custom_fields(self):
+        config = default_config(); wanted = management.default_monitors(config)[0]
+        legacy = management.legacy_monitor_names(config)[wanted["name"]]
+        row = dict(wanted, id=71, name=legacy, notificationIDList={"8": True},
+                   tags=[{"id": 9, "name": "My tag"}], description="My description", parent=12, weight=20)
+        review = [{"action": "rename", "id": 71, "from": legacy, "name": wanted["name"]}]
+        custom = {"id": 99, "name": "My service", "type": "http", "url": "https://example.invalid"}
+        result, _ = self.execute(monitors={"71": row, "99": custom}, review=review)
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(result["calls"].count("editMonitor"), 1)
+        self.assertNotIn("add", result["calls"])
+        self.assertEqual(result["monitors"]["71"], {**row, "name": wanted["name"]})
+        self.assertEqual(result["monitors"]["99"], custom)
+        self.assertTrue(json.loads(result["output"][0])["monitors"][0]["renamed"])
+
+    def test_readonly_legacy_verification_retains_existing_monitor_name(self):
+        config = default_config(); wanted = management.default_monitors(config)[0]
+        legacy = management.legacy_monitor_names(config)[wanted["name"]]
+        row = dict(wanted, id=71, name=legacy)
+        result, _ = self.execute(monitors={"71": row}, write=False)
+        self.assertEqual(result["code"], 0)
+        self.assertNotIn("editMonitor", result["calls"])
+        self.assertEqual(result["monitors"]["71"], row)
+        self.assertTrue(json.loads(result["output"][0])["monitors"][0]["legacy_label"])
+
+    def test_legacy_edit_requires_explicit_review_and_refuses_stale_or_ambiguous_id(self):
+        config = default_config(); wanted = management.default_monitors(config)[0]
+        legacy = management.legacy_monitor_names(config)[wanted["name"]]
+        row = dict(wanted, id=71, name=legacy)
+        for review in (None, [{"action": "rename", "id": 72, "from": legacy, "name": wanted["name"]}]):
+            with self.subTest(review=review):
+                result, _ = self.execute(monitors={"71": row}, review=review)
+                self.assertEqual(result["code"], 2)
+                self.assertNotIn("editMonitor", result["calls"])
+                self.assertNotIn("add", result["calls"])
+        result, _ = self.execute(monitors={"71": row, "72": dict(wanted, id=72)},
+            review=[{"action": "rename", "id": 71, "from": legacy, "name": wanted["name"]}])
+        self.assertEqual(result["code"], 2)
+        self.assertNotIn("editMonitor", result["calls"])
+
+    def test_notification_changes_or_failed_label_edit_are_not_reported_as_success(self):
+        config = default_config(); wanted = management.default_monitors(config)[0]
+        legacy = management.legacy_monitor_names(config)[wanted["name"]]
+        row = dict(wanted, id=71, name=legacy, notificationIDList={"8": True})
+        review = [{"action": "rename", "id": 71, "from": legacy, "name": wanted["name"]}]
+        for fixture in ({"breakNotification": True}, {"rejectEdit": True}):
+            with self.subTest(fixture=fixture):
+                result, _ = self.execute(monitors={"71": row}, review=review, **fixture)
+                self.assertEqual(result["code"], 2)
+                self.assertEqual(result["output"], [])
 
 
 if __name__ == "__main__":

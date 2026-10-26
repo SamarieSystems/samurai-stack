@@ -5,9 +5,18 @@ Sonarr/Radarr enrollment offers the same reviewed policy before Seerr wiring.
 This is optional. Declining leaves the current policy in place.
 
 The installer reads the live schemas and creates one named profile per app:
-`Samurai <installation> 1080p Original`. Existing profiles, titles, files and
+`1080p Original | <media-project>`, for example
+`1080p Original | home-picturehouse`. Its custom formats use the same
+project-qualified display convention. Existing profiles, titles, files and
 download queues are preserved. An existing resource with that name must match
 the policy exactly; a conflict stops setup instead of overwriting it.
+
+A reviewed apply can relabel an exact legacy
+`Samurai <installation> 1080p Original` profile and its matching custom formats
+through the supported APIs. It keeps their original IDs, scores, policy and
+title assignments. Verification reads either exact label without renaming.
+Duplicate old/new candidates or a policy mismatch require review; display
+cleanup does not authorize changing the policy or reassigning existing titles.
 
 - Allow HDTV, WEB and Blu-ray at 720p or 1080p. Exclude 4K, remux, DVD and CAM.
 - Keep original audio. English-origin titles require English; foreign titles

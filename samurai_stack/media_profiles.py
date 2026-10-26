@@ -1,8 +1,9 @@
 """Reviewed, opt-in Starr profiles. No searches, imports or title reassignment.
 
-Profiles and custom formats are created from live API schemas. Existing named
-resources are verified rather than overwritten. File-size definitions are
-global Starr settings, so changing them requires a separate reviewed plan.
+Profiles and custom formats are created from live API schemas. Existing policy
+is verified rather than overwritten; reviewed legacy-label updates retain the
+same IDs and policy. File-size definitions are global Starr settings, so changing
+them requires a separate reviewed plan.
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 import re
 
-from . import engine, hardlinks, integrations
+from . import engine, hardlinks, integrations, naming
 from .safety import SafetyError, digest, no_symlinks, write_json
 
 
@@ -34,11 +35,19 @@ LIMITATIONS = [
 
 
 def profile_name(config):
+    return "1080p Original | " + naming.project_name(config, 2)
+
+
+def legacy_profile_name(config):
     return "Samurai " + config["deployment_name"] + " 1080p Original"
 
 
 def _name(config, suffix):
-    return "Samurai " + config["deployment_name"] + ": " + suffix
+    return suffix + " | " + naming.project_name(config, 2)
+
+
+def _legacy_format_name(config, desired):
+    return "Samurai " + config["deployment_name"] + ": " + desired["name"].rsplit(" | ", 1)[0]
 
 
 def _integer(value):
@@ -58,6 +67,27 @@ def _unique(rows, name):
     if matches and (not _integer(matches[0].get("id")) or matches[0]["id"] < 1):
         raise SafetyError("Starr returned an invalid resource ID")
     return matches[0] if matches else None
+
+
+def _alias(rows, name, legacy):
+    """Only the exact friendly/legacy pair can identify one managed resource."""
+    matches = [row for row in rows if row.get("name") in {name, legacy}]
+    if len(matches) > 1:
+        raise SafetyError("Ambiguous friendly and legacy profile/custom format names; existing resources were kept")
+    if matches and (not _integer(matches[0].get("id")) or matches[0]["id"] < 1):
+        raise SafetyError("Starr returned an invalid resource ID")
+    return matches[0] if matches else None
+
+
+def _matching_policy(policy, existing, desired):
+    """Display names may differ; the complete selection policy may not."""
+    current = policy(existing)
+    current["name"] = desired["name"]
+    return current == policy(desired)
+
+
+def _action(existing, name):
+    return "create" if existing is None else "verify" if existing["name"] == name else "rename"
 
 
 def _specification(schema, implementation, *, name, value, negate=False):
@@ -220,23 +250,30 @@ class _Inventory:
             original = originals[0]
             desired_formats = _formats(config, service, format_schema, original)
             managed_names = {row["name"] for row in desired_formats}
+            existing_formats = {}
             for desired in desired_formats:
-                existing = _unique(formats, desired["name"])
-                if existing and _cf_policy(existing) != _cf_policy(desired):
+                existing = _alias(formats, desired["name"], _legacy_format_name(config, desired))
+                existing_formats[desired["name"]] = existing
+                if existing and not _matching_policy(_cf_policy, existing, desired):
                     raise SafetyError("An existing Samurai custom format differs; it was kept. Review it in Starr before retrying")
             # Missing formats use temporary negative IDs only in the reviewed
             # projection. Apply rebuilds the body with IDs read back from Starr.
             projected_formats = deepcopy(formats)
             for number, desired in enumerate(desired_formats, 1):
-                if not _unique(formats, desired["name"]):
+                existing = existing_formats[desired["name"]]
+                if existing:
+                    projected = next(row for row in projected_formats if row["id"] == existing["id"])
+                    projected["name"] = desired["name"]
+                else:
                     projected_formats.append({**deepcopy(desired), "id": -100000 - number})
             desired_profile = _profile(config, service, profile_schema, projected_formats, managed_names, original)
-            existing_profile = _unique(profiles, profile_name(config))
-            if existing_profile and _profile_policy(existing_profile) != _profile_policy(desired_profile):
+            existing_profile = _alias(profiles, profile_name(config), legacy_profile_name(config))
+            if existing_profile and not _matching_policy(_profile_policy, existing_profile, desired_profile):
                 raise SafetyError("An existing Samurai quality profile differs; it was kept. Review it in Starr before retrying")
             definitions = _rows(call("qualitydefinition")) if include_global_sizes else []
             self.services[service] = {"profiles": profiles, "formats": formats, "profile_schema": profile_schema,
                                       "original": original, "desired_formats": desired_formats,
+                                      "existing_formats": existing_formats,
                                       "desired_profile": desired_profile, "existing_profile": existing_profile,
                                       "definitions": definitions,
                                       "size_changes": _sizes(service, definitions) if include_global_sizes else []}
@@ -246,15 +283,18 @@ class _Inventory:
         for service, state in self.services.items():
             services[service] = {
                 "profile": profile_name(config),
-                "action": "verify" if state["existing_profile"] else "create",
+                "action": _action(state["existing_profile"], profile_name(config)),
                 "profile_id": state["existing_profile"]["id"] if state["existing_profile"] else None,
+                "previous_profile_name": state["existing_profile"]["name"] if state["existing_profile"] else None,
                 "custom_formats": [{"name": row["name"], "score": -10000,
-                                     "action": "verify" if _unique(state["formats"], row["name"]) else "create"}
+                                     "action": _action(state["existing_formats"][row["name"]], row["name"]),
+                                     "id": state["existing_formats"][row["name"]]["id"] if state["existing_formats"][row["name"]] else None,
+                                     "previous_name": state["existing_formats"][row["name"]]["name"] if state["existing_formats"][row["name"]] else None}
                                     for row in state["desired_formats"]],
                 "size_changes": [{key: row[key] for key in ("id", "quality", "before", "after")} for row in state["size_changes"]],
                 "snapshot_hash": digest({key: state[key] for key in ("profiles", "formats", "profile_schema", "definitions", "original")}),
             }
-        result = {"schema_version": 1, "policy_version": 1, "deployment_id": config["deployment_id"],
+        result = {"schema_version": 1, "policy_version": 2, "deployment_id": config["deployment_id"],
                   "deployment_name": config["deployment_name"], "bind_address": config["bind_address"],
                   "host_id": engine.host_identity(), "config_digest": digest(config),
                   "include_global_sizes": include_global_sizes, "services": services,
@@ -314,8 +354,21 @@ def apply(config, reviewed_plan, *, runner=None, request=None, secret_resolver=N
         for service, state in inventory.services.items():
             api = lambda path, method="GET", body=None: inventory.api(service, "/api/v3/" + path, method, body)
             for desired in state["desired_formats"]:
-                if not _unique(state["formats"], desired["name"]):
+                existing = _alias(_rows(api("customformat")), desired["name"], _legacy_format_name(config, desired))
+                reviewed = state["existing_formats"][desired["name"]]
+                if reviewed is not None and existing != reviewed:
+                    raise SafetyError("A custom format changed during setup; its settings were kept")
+                if existing and not _matching_policy(_cf_policy, existing, desired):
+                    raise SafetyError("An existing Samurai custom format differs; its settings were kept")
+                if not existing:
                     api("customformat", "POST", desired)
+                elif existing["name"] != desired["name"]:
+                    renamed = deepcopy(existing)
+                    renamed["name"] = desired["name"]
+                    api("customformat/" + str(existing["id"]), "PUT", renamed)
+                    saved = _unique(_rows(api("customformat")), desired["name"])
+                    if saved != renamed:
+                        raise SafetyError("Starr did not retain the label-only custom-format update")
                 existing = _unique(_rows(api("customformat")), desired["name"])
                 if not existing or _cf_policy(existing) != _cf_policy(desired):
                     raise SafetyError("Starr did not retain a Samurai custom format; no profile was accepted")
@@ -324,11 +377,21 @@ def apply(config, reviewed_plan, *, runner=None, request=None, secret_resolver=N
                                        {row["name"] for row in state["desired_formats"]}, state["original"])
             # Recheck immediately before the create, including outside changes
             # made while another app or custom format was being configured.
-            existing = _unique(_rows(api("qualityprofile")), desired_profile["name"])
-            if existing and _profile_policy(existing) != _profile_policy(desired_profile):
+            existing = _alias(_rows(api("qualityprofile")), desired_profile["name"], legacy_profile_name(config))
+            reviewed = state["existing_profile"]
+            if reviewed and (not existing or existing["id"] != reviewed["id"]):
+                raise SafetyError("A quality profile changed identity during setup; its settings were kept")
+            if existing and not _matching_policy(_profile_policy, existing, desired_profile):
                 raise SafetyError("A Samurai profile changed during setup; its settings were kept")
             if not existing:
                 api("qualityprofile", "POST", desired_profile)
+            elif existing["name"] != desired_profile["name"]:
+                renamed = deepcopy(existing)
+                renamed["name"] = desired_profile["name"]
+                api("qualityprofile/" + str(existing["id"]), "PUT", renamed)
+                saved = _unique(_rows(api("qualityprofile")), desired_profile["name"])
+                if saved != renamed:
+                    raise SafetyError("Starr did not retain the label-only quality-profile update")
             existing = _unique(_rows(api("qualityprofile")), desired_profile["name"])
             if not existing or _profile_policy(existing) != _profile_policy(desired_profile):
                 raise SafetyError("Starr did not retain the reviewed Samurai profile")
@@ -360,5 +423,12 @@ def verify(config, *, include_global_sizes=False, runner=None, request=None, sec
     sizes_ok = not include_global_sizes or not any(state["size_changes"] for state in inventory.services.values())
     return {"ok": not missing and sizes_ok, "status": "verified" if not missing and sizes_ok else "pending",
             "profile_name": profile_name(config), "profile_ids": profiles, "missing": missing,
+            "current_profile_names": {service: state["existing_profile"]["name"] if state["existing_profile"] else None
+                                      for service, state in inventory.services.items()},
+            "label_updates_pending": sum(
+                int(state["existing_profile"] is not None and state["existing_profile"]["name"] != profile_name(config))
+                + sum(existing is not None and existing["name"] != name
+                      for name, existing in state["existing_formats"].items())
+                for state in inventory.services.values()),
             "global_sizes": "verified" if include_global_sizes and sizes_ok else "pending" if include_global_sizes else "unchanged",
             "limitations": list(LIMITATIONS)}

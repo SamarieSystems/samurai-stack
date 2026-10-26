@@ -97,6 +97,19 @@ class StarrProfiles:
                 index = next(index for index, row in enumerate(self.definitions[service]) if row["id"] == identifier)
                 self.definitions[service][index] = copy.deepcopy(json)
             return copy.deepcopy(json)
+        if method == "PUT" and path.split("/", 1)[0] in {"customformat", "qualityprofile"}:
+            kind, identifier = path.split("/", 1)
+            identifier = int(identifier)
+            rows = self.formats[service] if kind == "customformat" else self.profiles[service]
+            if not self.ignore_writes:
+                index = next(index for index, row in enumerate(rows) if row["id"] == identifier)
+                rows[index] = copy.deepcopy(json)
+                if kind == "customformat":
+                    for profile in self.profiles[service]:
+                        for item in profile["formatItems"]:
+                            if item["format"] == identifier:
+                                item["name"] = json["name"]
+            return copy.deepcopy(json)
         raise AssertionError("Unexpected mutation endpoint: " + method + " " + path)
 
 
@@ -200,6 +213,131 @@ class ProfilesTests(unittest.TestCase):
         self.assertFalse(self.vendor.writes)
         self.assertTrue(self.verify()["ok"])
         self.assertFalse(self.vendor.writes)
+
+    def legacy_resources(self):
+        """Model an existing release, retaining IDs and title assignments."""
+        self.apply(self.plan())
+        for service in media_profiles.SERVICES:
+            profile = self.vendor.profiles[service][1]
+            profile["name"] = media_profiles.legacy_profile_name(self.c)
+            self.vendor.titles[service][0]["qualityProfileId"] = profile["id"]
+            for row in self.vendor.formats[service][1:]:
+                row["name"] = media_profiles._legacy_format_name(self.c, row)
+                row["futureVendorField"] = {"retain": "custom-format metadata"}
+                for existing in self.vendor.profiles[service]:
+                    for item in existing["formatItems"]:
+                        if item["format"] == row["id"]:
+                            item["name"] = row["name"]
+        self.vendor.calls.clear()
+
+    def test_friendly_names_use_the_saved_media_project_without_changing_identity(self):
+        before = copy.deepcopy(self.c)
+        self.c["compose_projects"] = {"2": "picturehouse"}
+        self.assertEqual(media_profiles.profile_name(self.c), "1080p Original | picturehouse")
+        self.assertEqual(media_profiles._name(self.c, "HDR or Dolby Vision"), "HDR or Dolby Vision | picturehouse")
+        self.assertEqual(self.c["deployment_id"], before["deployment_id"])
+        self.assertEqual(self.c["deployment_name"], before["deployment_name"])
+
+    def test_legacy_labels_verify_read_only_and_preview_exact_in_place_renames(self):
+        self.legacy_resources()
+        result = self.verify()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["label_updates_pending"], 5)
+        self.assertFalse(self.vendor.writes)
+        reviewed = self.plan()
+        for service, state in reviewed["services"].items():
+            self.assertEqual(state["action"], "rename")
+            self.assertEqual(state["profile_id"], self.vendor.profiles[service][1]["id"])
+            self.assertEqual(state["previous_profile_name"], media_profiles.legacy_profile_name(self.c))
+            self.assertTrue(all(row["action"] == "rename" and row["id"] > 0 for row in state["custom_formats"]))
+        self.assertFalse(self.vendor.writes)
+
+    def test_reviewed_legacy_rename_preserves_ids_scores_titles_and_unrelated_settings(self):
+        self.legacy_resources()
+        profiles = copy.deepcopy(self.vendor.profiles)
+        formats = copy.deepcopy(self.vendor.formats)
+        titles = copy.deepcopy(self.vendor.titles)
+        definitions = copy.deepcopy(self.vendor.definitions)
+        result = self.apply(self.plan())
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["label_updates_pending"], 0)
+        self.assertEqual(result["profile_ids"], {"sonarr": 2, "radarr": 2})
+        self.assertEqual(self.vendor.titles, titles)
+        self.assertEqual(self.vendor.definitions, definitions)
+        self.assertEqual(len(self.vendor.writes), 5)
+        self.assertTrue(all(call[0] == "PUT" and call[2].split('/')[0] in {'customformat', 'qualityprofile'} for call in self.vendor.writes))
+        for service in media_profiles.SERVICES:
+            for before, after in zip(formats[service], self.vendor.formats[service]):
+                expected = copy.deepcopy(before)
+                if before["name"].startswith("Samurai "):
+                    expected["name"] = before["name"].split(": ", 1)[1] + " | " + media_profiles.naming.project_name(self.c, 2)
+                self.assertEqual(after, expected)
+            for before, after in zip(profiles[service], self.vendor.profiles[service]):
+                expected = copy.deepcopy(before)
+                if before["name"] == media_profiles.legacy_profile_name(self.c):
+                    expected["name"] = media_profiles.profile_name(self.c)
+                for item in expected["formatItems"]:
+                    item["name"] = next(row["name"] for row in self.vendor.formats[service] if row["id"] == item["format"])
+                self.assertEqual(after, expected)
+        self.vendor.calls.clear()
+        self.assertTrue(self.apply(self.plan())["ok"])
+        self.assertFalse(self.vendor.writes)
+
+    def test_friendly_and_legacy_profile_collision_refuses_all_writes(self):
+        self.legacy_resources()
+        duplicate = copy.deepcopy(self.vendor.profiles["sonarr"][1])
+        duplicate.update(id=77, name=media_profiles.profile_name(self.c))
+        self.vendor.profiles["sonarr"].append(duplicate)
+        with self.assertRaisesRegex(SafetyError, "Ambiguous"):
+            self.plan()
+        self.assertFalse(self.vendor.writes)
+
+    def test_friendly_and_legacy_format_collision_refuses_all_writes(self):
+        self.legacy_resources()
+        duplicate = copy.deepcopy(self.vendor.formats["sonarr"][1])
+        duplicate.update(id=77, name=media_profiles._name(self.c, "HDR or Dolby Vision"))
+        self.vendor.formats["sonarr"].append(duplicate)
+        with self.assertRaisesRegex(SafetyError, "Ambiguous"):
+            self.plan()
+        self.assertFalse(self.vendor.writes)
+
+    def test_legacy_policy_conflict_and_stale_rename_review_refuse_all_writes(self):
+        self.legacy_resources()
+        reviewed = self.plan()
+        self.vendor.profiles["radarr"][1]["futureVendorField"] = {"changed": True}
+        with self.assertRaisesRegex(SafetyError, "changed after the preview"):
+            self.apply(reviewed)
+        self.assertFalse(self.vendor.writes)
+        self.vendor.profiles["sonarr"][1]["upgradeAllowed"] = True
+        with self.assertRaisesRegex(SafetyError, "existing Samurai quality profile differs"):
+            self.plan()
+        self.assertFalse(self.vendor.writes)
+
+    def test_legacy_format_policy_conflict_is_not_hidden_by_its_old_name(self):
+        self.legacy_resources()
+        self.vendor.formats["sonarr"][1]["includeCustomFormatWhenRenaming"] = True
+        with self.assertRaisesRegex(SafetyError, "existing Samurai custom format differs"):
+            self.plan()
+        self.assertFalse(self.vendor.writes)
+
+    def test_format_identity_replaced_after_review_refuses_the_rename(self):
+        self.legacy_resources()
+        reviewed = self.plan()
+        def replace_identity(*args):
+            self.vendor.formats["sonarr"][1]["id"] = 909
+        self.backup.side_effect = replace_identity
+        with self.assertRaisesRegex(SafetyError, "custom format changed during setup"):
+            self.apply(reviewed)
+        self.assertFalse(self.vendor.writes)
+
+    def test_ignored_legacy_label_put_is_not_reported_success(self):
+        self.legacy_resources()
+        self.vendor.ignore_writes = True
+        with self.assertRaisesRegex(SafetyError, "label-only custom-format"):
+            self.apply(self.plan())
+        self.assertEqual(len(self.vendor.profiles["sonarr"]), 2)
+        self.assertEqual(self.verify()["label_updates_pending"], 5)
+        self.assertEqual(len(self.vendor.writes), 1)
 
     def test_global_sizes_need_explicit_review_and_preserve_unrelated_settings(self):
         before = copy.deepcopy(self.vendor.definitions)

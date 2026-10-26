@@ -1,7 +1,10 @@
 """Conservative, idempotent application wiring with sanitized result reports.
 
-Only deployment-named resources are created. Existing resources are verified,
-never silently repointed, deleted, adopted, or rewritten. No media is requested.
+Only installation-named resources are created. Existing resources are verified,
+never repointed, deleted or adopted. Configure may replace an exact legacy
+display label after proving its unchanged ID/settings; verify never renames.
+Seerr's selected-profile display cache can follow its existing profile ID.
+No media is requested.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ import json as jsonlib
 from urllib.parse import urlencode
 
 from .catalog import PORTS, role_host, stage_endpoints
+from . import naming
 
 
 class Pending(RuntimeError):
@@ -31,6 +35,41 @@ def _same(actual, expected) -> bool:
     if isinstance(expected, int):
         return str(actual) == str(expected)
     return str(actual).rstrip("/") == str(expected).rstrip("/")
+
+
+def _update_display_fields(collection, item, updates, read, write, *, minimum_id=1):
+    """Update proven display metadata, preserving IDs and every other field.
+
+    A collection recheck immediately precedes the supported PUT. Compare the
+    complete readback, including unrelated entries, because a vendor update
+    can have side effects such as changing another server's default flag.
+    """
+    if (not isinstance(updates, dict) or not updates or not set(updates) <= {"name", "activeProfileName"}
+            or any(not isinstance(value, str) or not value.strip() for value in updates.values())):
+        raise Conflict("Display updates must contain only known, nonempty labels")
+    identifier = item.get("id")
+    if type(identifier) is not int or identifier < minimum_id:
+        raise Conflict("The legacy display label has no unambiguous resource ID")
+    identifiers = [row.get("id") for row in collection]
+    if (any(type(value) is not int or value < minimum_id for value in identifiers)
+            or len(set(identifiers)) != len(identifiers)):
+        raise Conflict("The resource collection has ambiguous IDs; no label was changed")
+    latest = read()
+    if latest != collection:
+        raise Conflict("Application resources changed during label review; no label was changed")
+    proposed = deepcopy(item)
+    proposed.update(updates)
+    write(identifier, proposed)
+    saved = read()
+    expected = [proposed if row["id"] == identifier else row for row in collection]
+    if (not isinstance(saved, list) or any(not isinstance(row, dict) or type(row.get("id")) is not int for row in saved)
+            or sorted(saved, key=lambda row: row["id"]) != sorted(expected, key=lambda row: row["id"])):
+        raise Conflict("Label update readback changed identity or settings; inspect the saved resource")
+    return "display labels updated; original IDs and settings preserved"
+
+
+def _rename_label(collection, item, name, read, write, *, minimum_id=1):
+    return _update_display_fields(collection, item, {"name": name}, read, write, minimum_id=minimum_id)
 
 
 def jellyfin_headers(token: str) -> dict[str, str]:
@@ -95,16 +134,20 @@ class _Run:
             self.report["ok"] = True
         return self.report
 
-    def ensure(self, service, path, name, implementation, field_values, top_values=None, *, readback_only=False):
+    def ensure(self, service, path, name, implementation, field_values, top_values=None, *, readback_only=False,
+               legacy_names=()):
         """Create from the live schema; verify existing managed entries and tests."""
         resources = self.api(service, path)
-        if not isinstance(resources, list):
+        if not isinstance(resources, list) or any(not isinstance(row, dict) for row in resources):
             raise RuntimeError("Unexpected collection schema")
-        existing = [r for r in resources if r.get("name") == name]
+        labels = {name, *legacy_names}
+        existing = [r for r in resources if r.get("name") in labels]
         if len(existing) > 1:
             raise Conflict("Duplicate deployment-named resources; resolve them in the application UI")
         if existing:
             item = existing[0]
+            if str(item.get("implementation", "")).lower() != implementation.lower():
+                raise Conflict("Installation-named resource has a different implementation; no settings were changed")
             values = _fields(item)
             for field, expected in field_values.items():
                 # Vendor APIs commonly mask stored passwords; test the saved
@@ -121,6 +164,10 @@ class _Run:
             # releases return an empty list or no body. Nonempty errors fail.
             if response not in (None, [], {}):
                 raise Conflict("Saved application connection test failed")
+            if item.get("name") != name and self.write and not readback_only:
+                return _rename_label(resources, item, name,
+                    lambda: self.api(service, path),
+                    lambda identifier, proposed: self.api(service, path + "/" + str(identifier), "PUT", proposed))
             return "existing resource and saved connection verified"
         if not self.write or readback_only:
             raise Conflict("Deployment resource is missing; run configure for this stage")
@@ -142,7 +189,8 @@ class _Run:
             raise RuntimeError("Proposed connection test failed")
         self.api(service, path, "POST", item)
         # Read back the actual persisted object rather than trust a 201 alone.
-        return self.ensure(service, path, name, implementation, field_values, top_values, readback_only=True)
+        return self.ensure(service, path, name, implementation, field_values, top_values,
+                           readback_only=True, legacy_names=legacy_names)
 
 
 def _root_folder(r, service, media_type):
@@ -242,9 +290,12 @@ def _download_client(r, service, category, *, torrent=False):
         implementation = "Sabnzbd"
     preference = r.config.get("downloads", {}).get("prefer", "usenet")
     priority = 1 if (torrent and preference == "torrents") or (not torrent and preference == "usenet") else 10
-    return r.ensure(service, "/api/v3/downloadclient", f"Samurai {r.config['deployment_name']} {kind}", implementation,
+    stage = 3 if torrent else 2
+    label = naming.service_label(r.config, "qbittorrent" if torrent else "sabnzbd", stage)
+    return r.ensure(service, "/api/v3/downloadclient", label, implementation,
                     values, {"enable": True, "priority": priority, "removeCompletedDownloads": False,
-                             "removeFailedDownloads": False})
+                             "removeFailedDownloads": False},
+                    legacy_names=(f"Samurai {r.config['deployment_name']} {kind}",))
 
 
 def _protocol_preference(r, service):
@@ -273,8 +324,9 @@ def _protocol_preference(r, service):
 def _prowlarr_link(r, service):
     values = {"prowlarrUrl": r.media["prowlarr"], "baseUrl": r.media[service],
               "apiKey": r.key(service + "_api_key")}
-    return r.ensure("prowlarr", "/api/v1/applications", f"Samurai {r.config['deployment_name']} {service.title()}",
-                    service, values, {"syncLevel": "fullSync"})
+    return r.ensure("prowlarr", "/api/v1/applications", naming.service_label(r.config, service, 2),
+                    service, values, {"syncLevel": "fullSync"},
+                    legacy_names=(f"Samurai {r.config['deployment_name']} {service.title()}",))
 
 
 def _bazarr(r):
@@ -327,9 +379,12 @@ def _jellyfin(r):
     missing = []
     for suffix, media_type in [("Movies", "movies"), ("TV", "tvshows")]:
         folder = "movies" if suffix == "Movies" else "tv"
-        name, path = f"Samurai {r.config['deployment_name']} {suffix}", "/data/library/" + folder
-        if _canonical_library(libraries, folders, name, path, media_type,
-                              "movie" if suffix == "Movies" else "show") is None:
+        name, path = suffix + " | " + naming.project_name(r.config, 2), "/data/library/" + folder
+        # Check the old reserved label too: changing defaults must not make a
+        # legacy name pointing elsewhere look like permission to create a copy.
+        kind = "movie" if suffix == "Movies" else "show"
+        _canonical_library(libraries, folders, f"Samurai {r.config['deployment_name']} {suffix}", path, media_type, kind)
+        if _canonical_library(libraries, folders, name, path, media_type, kind) is None:
             missing.append((name, path, media_type))
     # Validate both existing library identities before creating either missing
     # collection. A conflicting TV row must not first create a movie duplicate.
@@ -345,7 +400,7 @@ def _jellyfin(r):
     folders = r.call("GET", base + "/Library/MediaFolders", headers=headers)
     for suffix, path, collection, kind in (("Movies", "/data/library/movies", "movies", "movie"),
                                            ("TV", "/data/library/tv", "tvshows", "show")):
-        if _canonical_library(libraries, folders, f"Samurai {r.config['deployment_name']} {suffix}",
+        if _canonical_library(libraries, folders, suffix + " | " + naming.project_name(r.config, 2),
                               path, collection, kind) is None:
             raise RuntimeError("Jellyfin library readback failed")
     return "administrator API access and read-only movie/TV library paths verified"
@@ -353,10 +408,11 @@ def _jellyfin(r):
 
 def _jellyfin_refresh(r, service):
     """Use native import events to refresh Jellyfin, including NFS libraries."""
-    return r.ensure(service, "/api/v3/notification", "Samurai " + r.config["deployment_name"] + " Jellyfin",
+    return r.ensure(service, "/api/v3/notification", naming.service_label(r.config, "jellyfin", 2),
         "MediaBrowser", {"host": role_host(r.config, 2), "port": PORTS["jellyfin"], "useSsl": False,
             "urlBase": "", "apiKey": r.key("jellyfin_api_key"), "notify": False, "updateLibrary": True,
-            "mapFrom": "", "mapTo": ""}, {"onDownload": True, "onUpgrade": True, "onRename": True})
+            "mapFrom": "", "mapTo": ""}, {"onDownload": True, "onUpgrade": True, "onRename": True},
+        legacy_names=("Samurai " + r.config["deployment_name"] + " Jellyfin",))
 
 
 def _seerr(r, service, *, readback_only=False):
@@ -364,8 +420,11 @@ def _seerr(r, service, *, readback_only=False):
     headers = {"X-Api-Key": key}
     base = r.media["seerr"] + "/api/v1/settings/" + service
     current = r.call("GET", base, headers=headers)
-    name = f"Samurai {r.config['deployment_name']} {service.title()}"
-    saved = [item for item in current if item.get("name") == name]
+    if not isinstance(current, list) or any(not isinstance(row, dict) for row in current):
+        raise Conflict("Seerr server settings have an unknown schema")
+    name = naming.service_label(r.config, service, 2)
+    legacy_name = f"Samurai {r.config['deployment_name']} {service.title()}"
+    saved = [item for item in current if item.get("name") in {name, legacy_name}]
     if saved:
         item = saved[0]
         path = "/data/library/" + ("movies" if service == "radarr" else "tv")
@@ -377,10 +436,34 @@ def _seerr(r, service, *, readback_only=False):
         test = r.call("POST", base + "/test", headers=headers, json=item)
         if not isinstance(test, dict) or not isinstance(test.get("profiles"), list) or not isinstance(test.get("rootFolders"), list):
             raise RuntimeError("Unexpected Seerr server test response")
-        if not any(p.get("id") == item.get("activeProfileId") for p in test["profiles"]):
+        profiles = [p for p in test["profiles"] if isinstance(p, dict) and p.get("id") == item.get("activeProfileId")]
+        if not profiles:
             raise Conflict("Seerr's selected quality profile no longer exists")
+        if (len(profiles) != 1 or not isinstance(profiles[0].get("name"), str) or not profiles[0]["name"].strip()):
+            raise Conflict("Seerr's selected quality profile has ambiguous display metadata")
         if not any(p.get("path", "").rstrip("/") == path for p in test["rootFolders"]):
             raise Conflict("Seerr's selected library root is unavailable")
+        display_updates = {}
+        if item.get("name") != name:
+            display_updates["name"] = name
+        if item.get("activeProfileName") != profiles[0]["name"]:
+            display_updates["activeProfileName"] = profiles[0]["name"]
+        if display_updates and r.write and not readback_only:
+            # Seerr's PUT clears other defaults for this same 4K/non-4K type.
+            # Refuse inconsistent pre-existing defaults instead of repairing
+            # that unrelated policy as a side effect of a display rename.
+            if any(row is not item and row.get("isDefault") is True
+                   and row.get("is4k") == item.get("is4k") for row in current):
+                raise Conflict("Seerr has ambiguous same-type defaults; no label was changed")
+            return _update_display_fields(current, item, display_updates,
+                lambda: r.call("GET", base, headers=headers),
+                # The OpenAPI request validator marks id read-only. Keep it
+                # in the comparison object and URL, never in the PUT body.
+                lambda identifier, proposed: r.call("PUT", base + "/" + str(identifier), headers=headers,
+                                                    json={key: value for key, value in proposed.items() if key != "id"}),
+                minimum_id=0)
+        if "activeProfileName" in display_updates:
+            return "saved Seerr server and connection verified; selected profile display cache is stale, configure refreshes its name only"
         return "saved Seerr server and connection verified"
     if readback_only:
         raise Conflict("Seerr creation returned without a persisted server; no duplicate was created")
@@ -397,7 +480,9 @@ def _seerr(r, service, *, readback_only=False):
     if not isinstance(test, dict) or not isinstance(test.get("profiles"), list) or not isinstance(test.get("rootFolders"), list):
         raise RuntimeError("Unexpected Seerr server test response")
     profiles = test.get("profiles", [])
-    preferred = ["Samurai " + r.config["deployment_name"] + " 1080p Original", "HD-1080p", "HD - 1080p", "Any"]
+    from . import media_profiles
+    preferred = [media_profiles.profile_name(r.config), media_profiles.legacy_profile_name(r.config),
+                 "HD-1080p", "HD - 1080p", "Any"]
     profile = next((p for title in preferred for p in profiles if p.get("name") == title), None)
     if profile is None and len(profiles) == 1:
         profile = profiles[0]

@@ -82,7 +82,7 @@ host path can differ while the container `/data` layout stays consistent.
 | A deliberate whole-stage stop stays stopped | Pending |
 | Disk-space floors/watchers are verified and their limits understood | Pending |
 | Dockge/Kuma owner logins work; projects and monitors match this server | Pending |
-| A real monitoring notification reached the chosen destination | Pending |
+| A real monitoring notification reached the chosen destination, if selected | Pending / not enabled |
 | An application-consistent backup exists outside this VM | Pending |
 | Restore has been tested separately without overwriting the working server | Pending |
 | Remote access works privately with only the intended people/devices allowed | Pending / not configured |

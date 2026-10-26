@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.4 - 2026-10-26
+
+- Use service-first display labels qualified by the chosen Compose project,
+  such as `Jellyfin | home-picturehouse` and `qBittorrent | home-courier`.
+  Retain the existing deployment UUID, project identities, storage paths,
+  image locks and generated systemd unit names.
+- Review existing Kuma monitor label changes against their original IDs,
+  names and listener settings. Relabel through its supported authenticated
+  edit operation, preserving history, tags, notification links and owner
+  settings. Read-only verification accepts exact legacy aliases without
+  renaming them; ambiguous or changed targets are refused.
+- Relabel exact legacy Starr/Prowlarr/Seerr connections and native Jellyfin
+  refresh entries in place during configuration. Keep IDs and unrelated fields,
+  including enabled/default choices. Retain custom Jellyfin library names.
+- Refresh Seerr's selected-profile display cache from its existing profile ID.
+  Omit the read-only ID from Seerr update bodies while retaining the original
+  URL ID and verifying the complete saved collection, including zero-ID servers.
+- Give reviewed profile/custom-format labels the same project-qualified form,
+  retaining IDs, scores, title assignments and media policy. Name new SAB NNTP
+  providers by their hostname in the UI while keeping their private server key.
+- Retain the complete offline user handbook and document how display names
+  differ from operational identities. Existing media, accounts, provider
+  credentials, download policy and VPN safeguards are preserved.
+
 ## User handbook supplement for 0.2.3 - 2026-10-25
 
 - Add a plain-language, task-based handbook for everyday viewers and first-time

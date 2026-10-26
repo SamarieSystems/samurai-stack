@@ -3,6 +3,56 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.4: Service-first names with retained resource identities
+
+October 26, 2026. The Windows suite completed 1,033 tests with 46 explicit
+platform/runtime skips and no failures. The naming changes use the configured
+Compose project in readable display labels while retaining operational
+identities and policy. The earlier reboot, storage and provider measurements
+remain scoped to their dated sections below.
+
+- Management protocol tests exercised the actual embedded Node Socket.IO
+  client against controlled events. Reviewed legacy-label edits retained the
+  monitor ID, custom tags, description, notification links and owner settings.
+  Duplicate old/new names, a stale reviewed ID, changed listener settings,
+  rejected edits and unexpected notification changes were refusal cases.
+- Read-only verification accepted an exact legacy alias without issuing an
+  edit, creating a monitor or resetting an account. Plans bind the complete
+  monitor-row digest; private custom fields are hashed rather than printed.
+- Supported application connection labels use in-place API updates after
+  exact resource/collection readback. Tests check retained IDs, unchanged
+  settings and unrelated resources. Profile/custom-format label updates keep
+  the original policy, scores and title references. New SAB provider display
+  labels are separate from their stable private server key.
+- A live migration on an existing Debian installation renamed ten Kuma
+  monitors, retained their original IDs and all 280 existing heartbeat rows,
+  and read back ten UP checks with zero notification configurations. It kept
+  all twelve container IDs and start times, both assigned profile IDs, 65
+  series, 94 films, and the size/inode/modification time of all 19,792 files
+  in the data tree. A consistent pre-change SQLite/API/configuration snapshot
+  was also copied off the guest. This is not a media content-hash backup.
+- Actual Seerr PUT validation rejected the read-only `id` returned by GET.
+  The corrected serializer omits that body field while retaining the original
+  numeric URL ID, including zero. Strict contract tests cover this middleware
+  rule. Native readback confirmed connection labels and selected-profile names,
+  with profile choices and every other server setting retained.
+- Media, torrent and management verification passed after the live edits.
+  All ten frontends returned HTTP 200 from a separate Windows client over
+  the private tailnet, in 31 to 156 ms. This is HTTP reachability in addition
+  to the account, connection and preservation checks, not a new playback test.
+- All 35 focused launcher, setup-bundle and release-builder tests completed
+  on Windows with 9 explicit skips and no failures. Both source entry points
+  report `0.2.4`. The source audit scanned 155 files with zero findings.
+- The offline handbook build checked 37 documents, including 10 novice
+  chapters and 209 internal links, with zero broken links or embedded network
+  resources. The precommit handbook is build validation only; final release
+  assets must be rebuilt from the clean committed source.
+
+These are naming and preservation checks. The original systemd unit names,
+deployment UUID, image locks, paths, download policy and VPN boundary remain
+unchanged. A display update is separate from a new cold-boot, acquisition,
+playback, notification-delivery or restore qualification.
+
 ## 0.2.3: Shared maintenance help
 
 October 25, 2026. Final packaged-entry checks found that the shared Bash help

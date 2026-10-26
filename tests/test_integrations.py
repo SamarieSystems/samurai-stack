@@ -132,6 +132,13 @@ class VendorModel:
             if path.endswith("/test"):
                 return {"profiles": [{"id": 1, "name": "HD-1080p"}],
                         "rootFolders": [{"path": "/data/library/movies"}, {"path": "/data/library/tv"}]}
+            if method == "PUT" and path.rsplit("/", 1)[-1].isdigit():
+                base, identifier = path.rsplit("/", 1)
+                rows = self.collections.setdefault((service, base), [])
+                if not self.ignore_writes:
+                    index = next(i for i, row in enumerate(rows) if row.get("id") == int(identifier))
+                    rows[index] = copy.deepcopy(json)
+                return copy.deepcopy(json)
             rows = self.collections.setdefault((service, path), [])
             if method == "POST" and not self.ignore_writes:
                 rows.append({**copy.deepcopy(json), "id": len(rows) + 1})
@@ -148,6 +155,13 @@ class VendorModel:
             impls = ["MediaBrowser"] if "notification" in path else ["Sabnzbd", "QBittorrent"] if "downloadclient" in path else ["Radarr", "Sonarr"]
             fields = ["host", "port", "useSsl", "urlBase", "username", "password", "apiKey", "movieCategory", "tvCategory", "prowlarrUrl", "baseUrl", "notify", "updateLibrary", "mapFrom", "mapTo"]
             return [{"implementation": i, "configContract": i + "Settings", "fields": [{"name": n, "value": None} for n in fields]} for i in impls]
+        if method == "PUT" and path.rsplit("/", 1)[-1].isdigit():
+            base, identifier = path.rsplit("/", 1)
+            rows = self.collections.setdefault((service, base), [])
+            if not self.ignore_writes:
+                index = next(i for i, row in enumerate(rows) if row.get("id") == int(identifier))
+                rows[index] = copy.deepcopy(json)
+            return copy.deepcopy(json)
         rows = self.collections.setdefault((service, path), [])
         if method == "POST" and not self.ignore_writes:
             rows.append({**copy.deepcopy(json), "id": len(rows) + 1})

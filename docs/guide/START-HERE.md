@@ -3,7 +3,7 @@
 You do not need to learn Docker to watch a film. Start with Jellyfin and Seerr.
 The other applications keep the library supplied and the server running.
 
-This handbook describes Samurai Stack 0.2.3. Your owner should give you the
+This handbook describes Samurai Stack 0.2.4. Your owner should give you the
 actual service links and your own account. The printable
 [handover sheet](HANDOVER-CHECKLIST.md) records those details without recording
 passwords. Features not enabled on your installation will not appear.

@@ -167,7 +167,8 @@ def database_state(c, name, *, allow_uninitialized=False):
         # unknown files prevent turning a damaged datastore into a fresh owner.
         if name != "uptime-kuma" or (not allow_uninitialized and any(directory.iterdir())):
             raise SafetyError("Management database is missing or unknown; no account was recreated")
-        return {"database": None, "users": [], "monitor_count": 0, "empty_directory": True}
+        return {"database": None, "users": [], "monitor_count": 0, "empty_directory": True,
+                "monitor_inventory": [], "monitor_inventory_digest": digest([])}
     info = path.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 2 * 1024 ** 3:
         raise SafetyError("Management database is not a bounded regular file")
@@ -186,6 +187,23 @@ def database_state(c, name, *, allow_uninitialized=False):
             if any(type(row["id"]) is not int or not isinstance(row["username"], str) or len(row["username"]) > 256 for row in users):
                 raise SafetyError("Management account inventory has an unknown shape")
             monitors = db.execute('SELECT COUNT(*) FROM "monitor"').fetchone()[0] if name == "uptime-kuma" else 0
+            inventory, inventory_digest = [], digest([])
+            if type(monitors) is not int or not 0 <= monitors <= 2048:
+                raise SafetyError("Management monitor inventory exceeds the safe bound")
+            if name == "uptime-kuma" and monitors and users:
+                cursor = db.execute('SELECT * FROM "monitor" ORDER BY id')
+                fields = [description[0] for description in cursor.description]
+                rows = [dict(zip(fields, row)) for row in cursor]
+                required = {"id", "name", "type", "hostname", "port", "interval", "retry_interval", "maxretries", "active"}
+                if not required <= set(fields):
+                    raise SafetyError("Management monitor database schema is unknown")
+                if any(type(row["id"]) is not int or not isinstance(row["name"], str) or len(row["name"]) > 512 for row in rows):
+                    raise SafetyError("Management monitor inventory has an unknown shape")
+                # Bind the complete monitor rows without exposing custom URLs,
+                # headers, SMTP settings or other provider inputs in the plan.
+                inventory_digest = digest([{key: ({"blob_hex": value.hex()} if isinstance(value, bytes) else value)
+                                            for key, value in row.items()} for row in rows])
+                inventory = [{key: row[key] for key in required} for row in rows]
             schema = db.execute("PRAGMA schema_version").fetchone()[0]
     except (sqlite3.Error, OSError):
         raise SafetyError("Management account database could not be verified read-only") from None
@@ -196,7 +214,8 @@ def database_state(c, name, *, allow_uninitialized=False):
     if (identity["device"], identity["inode"]) != (info.st_dev, info.st_ino):
         raise SafetyError("Management database changed identity during account inspection")
     return {"database": {**identity, "schema": schema},
-            "users": users, "monitor_count": monitors, "empty_directory": False}
+            "users": users, "monitor_count": monitors, "empty_directory": False,
+            "monitor_inventory": inventory, "monitor_inventory_digest": inventory_digest}
 
 
 def plan(c, *, claim_unconfigured=False, runner=run):
@@ -223,7 +242,8 @@ def plan(c, *, claim_unconfigured=False, runner=run):
             action = "verify_existing_login"
         apps[name] = {**targets[name], "database_state": state, "action": action}
     document = {"schema_version": 1, "deployment_id": c["deployment_id"], "host_id": engine.host_identity(),
-                "config_digest": digest(c), "claim_unconfigured": claim_unconfigured, "apps": apps}
+                "config_digest": digest(c), "claim_unconfigured": claim_unconfigured, "apps": apps,
+                "monitor_actions": monitor_actions(c, apps["uptime-kuma"]["database_state"])}
     document["review_hash"] = digest(document)
     return document
 
@@ -255,12 +275,44 @@ def default_monitors(c):
             # Keep monitoring private; no external URL or arbitrary scan input.
             host = catalog.role_host(c, stage)
             port = catalog.PORTS[name]
-            items[name] = {"name": "Samurai " + c["deployment_name"] + " / " + name,
+            items[name] = {"name": naming.service_label(c, name, stage),
                 "type": "port", "hostname": host, "port": port, "interval": 60,
                 "retryInterval": 60, "maxretries": 2, "resendInterval": 0,
                 "active": True, "notificationIDList": {}, "accepted_statuscodes": ["200-299"],
                 "conditions": [], "kafkaProducerBrokers": [], "kafkaProducerSaslOptions": {}, "rabbitmqNodes": []}
     return [items[key] for key in sorted(items)]
+
+
+def legacy_monitor_names(c):
+    """Exact historical aliases for the same configured local service checks."""
+    result = {}
+    for stage in (2, 3, 4, 5, 6):
+        if stage in {3, 5, 6} and not c["features"].get({3: "torrents", 5: "photos", 6: "music"}[stage]):
+            continue
+        for service in catalog.stage_endpoints(c, stage):
+            result[naming.service_label(c, service, stage)] = "Samurai " + c["deployment_name"] + " / " + service
+    return result
+
+
+def monitor_actions(c, state):
+    """Review label-only migration without adopting ambiguous/custom targets."""
+    result, legacy = [], legacy_monitor_names(c)
+    for wanted in default_monitors(c):
+        matches = [row for row in state["monitor_inventory"] if row["name"] in {wanted["name"], legacy[wanted["name"]]}]
+        if len(matches) > 1:
+            raise SafetyError("Managed monitor names are ambiguous; existing monitors were preserved")
+        if not matches:
+            result.append({"action": "create", "name": wanted["name"]})
+            continue
+        actual = matches[0]
+        expected = {"type": wanted["type"], "hostname": wanted["hostname"], "port": wanted["port"],
+                    "interval": wanted["interval"], "retry_interval": wanted["retryInterval"],
+                    "maxretries": wanted["maxretries"], "active": 1}
+        if any(actual.get(key) != value for key, value in expected.items()):
+            raise SafetyError("An existing managed monitor differs from its reviewed listener; no label was changed")
+        result.append({"action": "verify" if actual["name"] == wanted["name"] else "rename",
+                       "id": actual["id"], "from": actual["name"], "name": wanted["name"]})
+    return result
 
 
 SOCKET_SCRIPT = r'''
@@ -305,16 +357,37 @@ s.on("connect",async()=>{try{
      result.projects.push({name,managed:true,status:state.status,service_status:services});
    }
  }else{
-   let current=await monitors();const added=[];
+   let current=await monitors();const added=[],renamed=[],originals=new Map();
+   const aliases=p.legacy_monitor_names||{},review=p.monitor_review;
+   function matches(wanted,values){const same=Object.values(values).filter(row=>row&&(row.name===wanted.name||row.name===aliases[wanted.name]));if(same.length>1)throw new Error("duplicate-monitor");return same;}
+   function valid(actual,wanted){if(!actual||!Number.isInteger(actual.id)||actual.type!==wanted.type||actual.hostname!==wanted.hostname||Number(actual.port)!==wanted.port||Number(actual.interval)!==wanted.interval||Number(actual.retryInterval)!==wanted.retryInterval||Number(actual.maxretries)!==wanted.maxretries||actual.active!==true)throw new Error("existing-monitor-differs");}
+   function reviewed(wanted,actual){if(!Array.isArray(review))return;const rows=review.filter(row=>row.name===wanted.name);if(rows.length!==1)throw new Error("review");const row=rows[0];if(!actual){if(row.action!=="create")throw new Error("review-changed");}else if(row.id!==actual.id||row.from!==actual.name||row.action!==(actual.name===wanted.name?"verify":"rename"))throw new Error("review-changed");}
+   function canonical(value){if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==="object")return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value;}
+   // Validate every candidate before any write. Custom monitors are untouched.
+   for(const wanted of p.monitors){const same=matches(wanted,current);const actual=same[0];if(actual){valid(actual,wanted);originals.set(wanted.name,actual);}else if(p.write_monitors!==true)throw new Error("missing-monitor");if(p.write_monitors===true)reviewed(wanted,actual);}
    for(const wanted of p.monitors){
-     const same=Object.values(current).filter(row=>row&&row.name===wanted.name);
-     if(same.length>1)throw new Error("duplicate-monitor");
-     if(!same.length){if(p.write_monitors!==true)throw new Error("missing-monitor");good(await call("add",wanted));added.push(wanted.name);continue;}
-     const actual=same[0];
-     if(actual.type!==wanted.type||actual.hostname!==wanted.hostname||Number(actual.port)!==wanted.port||Number(actual.interval)!==wanted.interval||Number(actual.retryInterval)!==wanted.retryInterval||Number(actual.maxretries)!==wanted.maxretries||actual.active!==true)throw new Error("existing-monitor-differs");
+     if(p.write_monitors!==true)continue;
+     current=await monitors();const actual=matches(wanted,current)[0];
+     if(actual)valid(actual,wanted);reviewed(wanted,actual);
+     if(!actual){good(await call("add",wanted));added.push(wanted.name);continue;}
+     if(actual.name!==wanted.name){
+       if(!Array.isArray(review))throw new Error("rename-needs-review");
+       originals.set(wanted.name,actual);
+       // The supported edit changes the display name in place. Keep the full
+       // live object, including notifications, tags and other owner settings.
+       good(await call("editMonitor",{...actual,name:wanted.name}));renamed.push(wanted.name);
+     }
    }
    current=await monitors();result.monitors=[];
-   for(const wanted of p.monitors){const rows=Object.values(current).filter(row=>row&&row.name===wanted.name);if(rows.length!==1||rows[0].type!==wanted.type||rows[0].hostname!==wanted.hostname||Number(rows[0].port)!==wanted.port||rows[0].active!==true)throw new Error("monitor-readback");result.monitors.push({name:wanted.name,id:rows[0].id,type:"port",hostname:wanted.hostname,port:wanted.port,created:added.includes(wanted.name)});}
+   for(const wanted of p.monitors){
+     const rows=matches(wanted,current);if(rows.length!==1)throw new Error("monitor-readback");const actual=rows[0];valid(actual,wanted);
+     const original=originals.get(wanted.name);if(original&&original.id!==actual.id)throw new Error("monitor-id-changed");
+     if(renamed.includes(wanted.name)){
+       if(actual.name!==wanted.name)throw new Error("label-readback");
+       for(const key of ["notificationIDList","tags","description","parent","parentID","weight","resendInterval"]){if(Object.prototype.hasOwnProperty.call(original,key)&&JSON.stringify(canonical(original[key]))!==JSON.stringify(canonical(actual[key])))throw new Error("monitor-settings-changed");}
+     }
+     result.monitors.push({name:actual.name,desired_name:wanted.name,id:actual.id,type:"port",hostname:wanted.hostname,port:wanted.port,created:added.includes(wanted.name),renamed:renamed.includes(wanted.name),legacy_label:actual.name!==wanted.name});
+   }
    result.authenticated_monitor_list=true;
  }
  console.log(JSON.stringify(result));clearTimeout(timer);s.close();process.exit(0);
@@ -322,14 +395,16 @@ s.on("connect",async()=>{try{
 '''
 
 
-def socket_check(c, service, target, creds, *, allow_setup=False, write_monitors=False, mode="verify", runner=run):
+def socket_check(c, service, target, creds, *, allow_setup=False, write_monitors=False, mode="verify", monitor_review=None, runner=run):
     root, _ = _paths(c)
     projects = [p.name for p in no_symlinks(root / "stages").iterdir() if p.is_dir() and no_symlinks(p / "compose.yaml").is_file()]
     if len(projects) > 32:
         raise SafetyError("Too many managed Compose sets for bounded management enrollment")
     payload = {"service": service, "url": "http://127.0.0.1:" + str(catalog.PORTS[service]),
         **creds, "allow_setup": allow_setup, "write_monitors": write_monitors, "mode": mode,
-        "projects": sorted(projects), "monitors": default_monitors(c) if service == "uptime-kuma" else []}
+        "projects": sorted(projects), "monitors": default_monitors(c) if service == "uptime-kuma" else [],
+        "legacy_monitor_names": legacy_monitor_names(c) if service == "uptime-kuma" else {},
+        "monitor_review": monitor_review}
     try:
         result = runner(["docker", "--context", "default", "exec", "-i", "-w", "/app", target["container"],
                          "node", "-e", SOCKET_SCRIPT], input=json.dumps(payload), timeout=75)
@@ -417,10 +492,14 @@ def apply(c, document, accepted, supplied=None, *, runner=run, request=engine.re
             reviewed_database = row["database_state"]["database"]
             if reviewed_database and not onboarding.same_identity(reviewed_database, current["database"]):
                 raise SafetyError("Management database changed after review; no owner was replaced")
+            if name == "uptime-kuma" and current["monitor_inventory_digest"] != row["database_state"]["monitor_inventory_digest"]:
+                raise SafetyError("Management monitors changed after review; no monitor was relabeled")
             entry["database_identity"] = current["database"]
             _save(c, receipt)
             report = socket_check(c, name, target, creds, allow_setup=allow_setup,
-                                  write_monitors=add_monitors, runner=runner)
+                                  write_monitors=add_monitors,
+                                  monitor_review=document["monitor_actions"] if name == "uptime-kuma" else None,
+                                  runner=runner)
             state = database_state(c, name)
             if not any(user["username"] == creds["username"] for user in state["users"]):
                 raise SafetyError("Management authenticated owner is absent from its owned datastore")
