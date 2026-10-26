@@ -1,8 +1,11 @@
 # Private remote access
 
 Use a private Tailscale connection and ordinary OpenSSH for remote administration.
-The SSH connection can forward browser ports to the VM's existing LAN listeners.
-This does not require public ports, an exit node or advertising an entire LAN.
+An SSH connection can forward browser ports to the VM's existing LAN listeners.
+An operator can alternatively configure persistent private Tailscale Serve TCP
+forwards. Neither method requires public ports, an exit node or advertising an
+entire LAN. The Samurai installer does not configure either remote-access path
+automatically.
 
 ## Confirm the correct machine
 
@@ -41,7 +44,33 @@ than internet bandwidth.
 
 Samurai publishes application ports on `bind_address`, usually the VM's LAN
 address. Its separate Tailscale address will not automatically accept those
-ports. Keep the current private bindings and forward through SSH.
+ports. Keep the current private bindings and choose one of the following methods.
+
+### Persistent links with Tailscale Serve
+
+Run this on the application VM only after confirming the existing Jellyfin LAN
+listener works. Replace the example address with that VM's reserved LAN address:
+
+```sh
+sudo tailscale serve --bg --tcp=8096 tcp://192.168.1.50:8096
+tailscale serve status
+```
+
+Open `http://VM_TAILSCALE_IP:8096` from an allowed connected tailnet device,
+substituting the actual address from `tailscale ip -4`. This forwards the
+existing private listener and preserves its normal application login. It does
+not create an HTTPS certificate for this raw TCP/HTTP example.
+
+The `--bg` configuration persists across reboot. Inspect existing Serve
+configuration before adding listeners; do not reset unrelated forwards. Add
+other application ports individually only for intended authorized users. Tailnet
+access policy still applies. **Funnel is different and is not required.**
+
+This removes the need to keep a client SSH terminal open. It does not repair
+a stopped application, wrong LAN binding or failed storage guard. See the
+[official Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+
+### Temporary links through SSH
 
 In PowerShell, replace the account, VM Tailscale address and VM LAN address:
 

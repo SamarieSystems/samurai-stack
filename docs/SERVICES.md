@@ -235,13 +235,17 @@ container terminals remain available for inspection and troubleshooting. Dockge
 itself is an administrative process with Docker socket access; it does not use
 the media UID/GID as a security boundary.
 
-Create the first Dockge and Kuma administrators yourself, then configure the
-monitors and notification type you want. Kuma supports multiple destinations;
-Discord/MediaBot is not required. Send a test notification and trigger one
-controlled monitor failure. The installer cannot confirm an email or chat
-delivery just because a webhook field was saved. The explicit manual enrollment
-checklist supplements live frontend checks where no stable public enrollment API
-is available.
+Guided step 5 enrolls the first Dockge/Kuma owners only after proving those
+applications are fresh, or authenticates their existing owners. It adds and
+verifies named private TCP monitors without replacing unrelated monitors.
+Existing owner passwords are required; a rejected login does not authorize
+resetting an account. Optional Homarr onboarding remains separate.
+
+Choose the notification destination yourself. Kuma supports multiple
+destinations; Discord/MediaBot is not required. Send a test notification and
+trigger one controlled monitor failure. The installer cannot confirm an email
+or chat delivery just because a webhook field was saved. TCP monitor success
+also does not prove an authenticated login, completed import or actual playback.
 
 ## Photos and music
 

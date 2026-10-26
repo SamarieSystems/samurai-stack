@@ -256,7 +256,7 @@ interrupt an active VPN or claim an unperformed kill-switch test.
 
 | Stage | Next action |
 | --- | --- |
-| 4, management | Plan/apply, open `access 4`, create Dockge/Kuma administrators and a Homarr administrator if enabled, add monitors and receive a real test alert. Run `attest 4`, then `verify 4`. |
+| 4, management | Plan/apply, then run guided `./setup 5` for supported fresh-owner enrollment or existing-owner authentication and additive private TCP monitors. Optional Homarr onboarding is separate. Configure a notification destination and receive a real test alert; manual attestations must reflect actual tests. |
 | 5, photos | Enable photos, plan/apply, complete Immich onboarding, configure/verify, then test upload and an isolated originals-plus-database restore. |
 | 6, music | Enable music, supply the private Soulseek inputs, plan/apply, enroll Navidrome and test a real track. Configure Music Assistant only if selected. Run `attest 6`, then `verify 6`. |
 

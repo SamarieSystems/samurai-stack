@@ -1,5 +1,17 @@
 # Changelog
 
+## User handbook supplement for 0.2.3 - 2026-10-25
+
+- Add a plain-language, task-based handbook for everyday viewers and first-time
+  owners, including a new-server walkthrough, file retrieval, imports, service
+  operation, troubleshooting, backups and a fillable handover checklist.
+- Build a searchable offline HTML/ZIP manual with inline technical references,
+  printable user-only/full-manual scopes, verified internal links and checksums.
+  The standard-library builder runs as a documentation gate in CI.
+- Correct older management enrollment instructions and document optional
+  persistent private Tailscale forwards. This supplement changes documentation
+  and its packaging only; the v0.2.3 installer assets remain unchanged.
+
 ## 0.2.3 - 2026-10-25
 
 - Include `--upgrade-storage-identity` and `--capacity` in the shared source and

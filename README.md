@@ -9,6 +9,12 @@ Build a private media server with a guided installer. Pick a step, review what i
 
 ## Start here
 
+**Using a server someone already installed?** Start with the
+[plain-language user handbook](docs/guide/README.md): watching, requests,
+downloads, files, subtitles, maintenance and troubleshooting. The
+[handover sheet](docs/guide/HANDOVER-CHECKLIST.md) records your own links and
+acceptance checks. You do not need to run the installer to use Jellyfin.
+
 Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
 `SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.3).
 Copy both files into the same directory in the VM, open a terminal there, then run:
