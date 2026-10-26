@@ -133,6 +133,11 @@ class RequestPolicyTests(unittest.TestCase):
         patch.object(policy.hardlinks,'check_targets').start()
         patch.object(engine,'host_identity',return_value='synthetic-request-host').start()
         patch.object(engine,'deployment_lock',return_value=nullcontext()).start()
+        # The temporary receipts belong to the CI runner, not root. Model
+        # root ownership only for this isolated fixture tree; keep private
+        # mode/symlink/schema checks and production ownership enforcement.
+        patch.object(policy.onboarding,'_root_owned',
+                     side_effect=lambda path: Path(path).is_relative_to(Path(self.directory.name))).start()
         self.addCleanup(patch.stopall)
 
     def plan(self, **kwargs):
@@ -317,6 +322,11 @@ class RequestPolicyTests(unittest.TestCase):
         self.apply()
         with patch.object(engine,'host_identity',return_value='other-host'):
             with self.assertRaises(SafetyError):policy.has_policy(self.c)
+
+    def test_receipt_root_ownership_guard_remains_enforced(self):
+        self.apply()
+        with patch.object(policy.onboarding,'_root_owned',return_value=False):
+            with self.assertRaisesRegex(SafetyError,'owned by root'):policy.has_policy(self.c)
 
     def test_old_hd_plan_cannot_replace_curated_owner_policy(self):
         self.apply()

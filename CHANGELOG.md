@@ -1,7 +1,10 @@
 # Changelog
 
-## 0.2.5 - 2026-10-26
+## 0.2.6 - 2026-10-26
 
+- Supersede the unpublished v0.2.5 tag after Linux CI exposed a test-fixture
+  ownership assumption. Keep production root-ownership checks unchanged;
+  isolate synthetic test ownership and verify unprivileged receipts are refused.
 - Add an explicit reviewed four-choice request policy: 1080p English, anime
   1080p dual audio, 4K English opt-in and anime 4K dual audio opt-in. Standard
   and anime requests use distinct HD defaults on the same existing backends.

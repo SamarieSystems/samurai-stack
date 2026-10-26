@@ -3,11 +3,15 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
-## 0.2.5: Reviewed request quality choices
+## 0.2.6: Reviewed request quality choices
 
-October 26, 2026. The Windows suite completed 1,060 tests with 46 explicit
+October 26, 2026. The Windows suite completed 1,061 tests with 46 explicit
 platform/runtime skips and no failures. The policy is an explicit opt-in,
-separate from the existing original-language preset.
+separate from the existing original-language preset. The v0.2.5 tag was held
+without publishing a release after Linux CI found synthetic receipts owned by
+its unprivileged runner. The fixture correction retains the runtime root-only
+guard and includes a refusal test; all 23 focused policy tests also passed as
+actual unprivileged UID 65534 on Linux.
 
 - Native Sonarr/Radarr schemas accepted all four policies on an existing Debian
   deployment. Standard requests defaulted to the existing HD profile ID;
