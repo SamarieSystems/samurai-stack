@@ -59,6 +59,27 @@ The marker `.samurai-storage.json` contains a deployment UUID and expected mount
 
 For an existing personal media collection, the safest start is a separate new tree. Point an additional read-only library at existing media after you have reviewed it. There is no automatic migration option in this release. A move/copy wizard needs independent manifests, collision checks, free-space calculations and recovery tests; it must not be disguised as directory setup.
 
-Local storage also works. Set `storage.mode` to `local`, select an existing ext4/XFS/Btrfs/ZFS filesystem, and record its actual mount identity. This does not create a filesystem or allocate a disk. Do not place application databases on NFS/SMB.
+Local storage also works. Set `storage.mode` to `local`, select an existing ext4/XFS/Btrfs/ZFS filesystem, and record its actual mount identity. New guided local setups record block-backed ext4/XFS/Btrfs sources as `UUID=<filesystem UUID>`, retaining the exact mountpoint, filesystem type and any Btrfs subvolume suffix. Linux `/dev/sdX` letters can change after reboot and are not a persistent identity. ZFS datasets and NFS exports retain their exact source names. This does not create a filesystem or allocate a disk. Do not place application databases on NFS/SMB.
+
+Existing configurations that recorded a `/dev/sdX` source are not silently rebound. A changed device name still stops their applications until an explicit recovery review proves the original filesystem UUID and deployment marker, then updates the current configuration, marker and dependent receipts together. Do not simply replace the source with whichever disk currently occupies the old letter. New UUID-based guards continue to reject a different filesystem, missing/read-only mounts, different mountpoints, subvolumes or ownership markers.
+
+## Upgrade an existing local installation
+
+Use the verified [0.2.2 release installer](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.2)
+to recover an existing local installation. From the portable release:
+
+```bash
+bash /path/to/samurai-setup.sh --upgrade-storage-identity
+```
+
+From the matching source checkout:
+
+```bash
+sudo ./setup --upgrade-storage-identity
+```
+
+The guided recovery displays the current mount identities and asks for the original media and application filesystem UUIDs. Confirm them from the original `/etc/fstab`, earlier inventory or a backup. Current disk letters are insufficient evidence. The tool checks the selected deployment marker, mountpoints, filesystem types and original application inodes, then saves a private review listing every affected control file. Applying that review updates the selected/canonical/stage configurations, dependent capacity/account/subtitle receipts and recognized generated guards together. Exact original control-file contents are saved under the existing installation's private `backups` directory. Unknown guard edits, different markers, wrong UUIDs and changed application inodes stop recovery.
+
+This maintenance action does not restart containers or alter media, accounts, databases or VPN settings. After it completes, resume the existing media/torrent setup steps to regenerate their current boot units and verify service startup. Do not start fresh or delete application data. If several installations exist, pass the intended private `--config /path/to/site.json` explicitly.
 
 Photos need an independent backup of **both originals and the database**, with a tested restore. A second share on the same NAS is not an independent failure domain.

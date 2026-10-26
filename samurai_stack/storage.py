@@ -7,6 +7,7 @@ from pathlib import Path
 import uuid
 
 from .safety import SafetyError, contained, no_symlinks, run, write_json
+from .runtime_guard import stable_mount
 
 DIRECTORIES = [
     "library/movies", "library/tv", "library/music",
@@ -25,13 +26,16 @@ def nearest_existing(path):
 
 def mount_identity(path, runner=run):
     query = nearest_existing(path)
-    result = runner(["findmnt", "--json", "--target", str(query), "--output", "TARGET,SOURCE,FSTYPE,OPTIONS"])
+    result = runner(["findmnt", "--json", "--target", str(query), "--output", "TARGET,SOURCE,FSTYPE,OPTIONS,UUID"])
     try:
         rows = json.loads(result.stdout)["filesystems"]
         if len(rows) != 1:
             raise ValueError()
         row = rows[0]
-        return {k: row[k] for k in ["target", "source", "fstype", "options"]}
+        result = {k: row[k] for k in ["target", "source", "fstype", "options"]}
+        if row.get("uuid"):
+            result["uuid"] = row["uuid"]
+        return result
     except (KeyError, ValueError, TypeError) as exc:
         raise SafetyError("Cannot establish a unique backing mount") from exc
 
@@ -41,6 +45,11 @@ def check_mount(c, runner=run):
     no_symlinks(root)
     found = mount_identity(root, runner)
     expected = c["storage"]["expected_mount"]
+    if expected["source"].startswith("UUID="):
+        try:
+            found = {**found, **stable_mount(found)}
+        except (KeyError, TypeError, ValueError):
+            raise SafetyError("Cannot verify the persistent local filesystem UUID; no local fallback") from None
     if any(found[k] != expected[k] for k in ["target", "source", "fstype"]):
         raise SafetyError("Storage mount identity mismatch; refusing local fallback or a different NAS export")
     if "rw" not in found["options"].split(","):
@@ -48,6 +57,14 @@ def check_mount(c, runner=run):
     if c["storage"]["mode"] == "nfs" and root == Path("/"):
         raise SafetyError("An NFS share must have a dedicated mount")
     return found
+
+
+def persistent_identity(identity):
+    """Use a reboot-stable source for newly reviewed local block storage."""
+    try:
+        return {**identity, **stable_mount(identity)}
+    except (KeyError, TypeError, ValueError):
+        raise SafetyError("Cannot prove a persistent local filesystem UUID. Fix the mount before saving storage choices.") from None
 
 
 def _mkdir_owned(path, root, uid, gid):

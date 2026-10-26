@@ -48,7 +48,7 @@ def _receipt(c):
             or not isinstance(value.get("apps"), dict) or set(value["apps"]) - set(SERVICES)):
         raise SafetyError("Management account receipt belongs to a different installation")
     for name, row in value["apps"].items():
-        if not isinstance(row, dict) or row.get("directory") != onboarding._identity(root / "appdata" / name):
+        if not isinstance(row, dict) or not onboarding.same_identity(row.get("directory"), onboarding._identity(root / "appdata" / name)):
             raise SafetyError("A management account directory was replaced; existing accounts were preserved")
     return value
 
@@ -192,7 +192,10 @@ def database_state(c, name, *, allow_uninitialized=False):
     after = path.stat()
     if (after.st_dev, after.st_ino) != (info.st_dev, info.st_ino):
         raise SafetyError("Management database changed identity during account inspection")
-    return {"database": {"device": info.st_dev, "inode": info.st_ino, "schema": schema},
+    identity = onboarding._identity(path, directory=False)
+    if (identity["device"], identity["inode"]) != (info.st_dev, info.st_ino):
+        raise SafetyError("Management database changed identity during account inspection")
+    return {"database": {**identity, "schema": schema},
             "users": users, "monitor_count": monitors, "empty_directory": False}
 
 
@@ -206,8 +209,7 @@ def plan(c, *, claim_unconfigured=False, runner=run):
         saved = receipt["apps"].get(name, {})
         fresh_database = saved.get("eligible") is True and saved.get("state") in {"reserved", "intent"} and not saved.get("database_identity")
         state = database_state(c, name, allow_uninitialized=fresh_database)
-        if saved.get("database_identity") and (state["database"] is None or any(
-                saved["database_identity"].get(key) != state["database"].get(key) for key in ("device", "inode"))):
+        if saved.get("database_identity") and not onboarding.same_identity(saved["database_identity"], state["database"]):
             raise SafetyError("A management database was replaced; no account was recreated")
         if not state["users"]:
             if saved.get("state") == "verified" or saved.get("existing_owner_seen") is True:
@@ -413,7 +415,7 @@ def apply(c, document, accepted, supplied=None, *, runner=run, request=engine.re
                 _kuma_database(c, allow_setup, request)
             current = database_state(c, name)
             reviewed_database = row["database_state"]["database"]
-            if reviewed_database and any(current["database"].get(key) != reviewed_database.get(key) for key in ("device", "inode")):
+            if reviewed_database and not onboarding.same_identity(reviewed_database, current["database"]):
                 raise SafetyError("Management database changed after review; no owner was replaced")
             entry["database_identity"] = current["database"]
             _save(c, receipt)
@@ -457,7 +459,7 @@ def verify(c, *, runner=run, request=engine.request):
             raise SafetyError("Management accounts need a reviewed enrollment before verification")
         state = database_state(c, name)
         saved = receipt["apps"][name].get("database_identity")
-        if not saved or state["database"] is None or any(saved.get(key) != state["database"].get(key) for key in ("device", "inode")):
+        if not saved or not onboarding.same_identity(saved, state["database"]):
             raise SafetyError("Management database changed identity; verification did not recreate any owner")
         if name == "uptime-kuma":
             _kuma_database(c, False, request)

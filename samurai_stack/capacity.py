@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import wraps
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,9 @@ from .safety import SafetyError, atomic_write, digest, no_symlinks, private_read
 
 GIB = 1024 ** 3
 UNIT_ROOT = Path("/etc/systemd/system")
+# Exact released v0.2.1 standalone watcher. A reviewed upgrade may replace
+# this known predecessor; locally edited or unknown scripts remain untouched.
+WATCHER_PREDECESSORS = frozenset({"6f1224b10b4fb0856eaecd26a48432dbafa07f2b67920bded38654f23df22a69"})
 LIMITATIONS = ["Reserves are pause/import thresholds, not filesystem quotas; checks cannot guarantee zero overshoot.",
                "Already-running extraction, other applications and filesystem metadata can still consume space.",
                "The watcher never deletes files, resumes downloads, stops seeders or changes VPN settings.",
@@ -132,6 +136,24 @@ def _unit_snapshot(c, root):
     return result
 
 
+def _source_sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _watcher_snapshot(c, enabled, previous, units):
+    script = no_symlinks(Path(c["install_root"]) / "capacity_guard.py")
+    current = guard.read(script) if script.exists() else None
+    before = _source_sha(current) if current is not None else None
+    desired = _source_sha(Path(guard.__file__).read_text())
+    if before is not None and before != desired:
+        if (before not in WATCHER_PREDECESSORS or previous is None or previous["qbit_guard"] is not True
+                or not units or any(value is None for value in units.values())):
+            raise SafetyError("Existing capacity watcher source differs from a supported owned predecessor; it was retained")
+    return {"before_sha256": before, "after_sha256": desired if enabled else before,
+            "action": "install" if enabled and before is None else "upgrade_known_predecessor"
+                      if enabled and before != desired else "keep"}
+
+
 def _inputs(c, data_reserve_gib, app_reserve_gib, qbit_guard, runner, request, resolver, unit_root):
     engine.linux_only()
     validate_config(c)
@@ -146,12 +168,11 @@ def _inputs(c, data_reserve_gib, app_reserve_gib, qbit_guard, runner, request, r
             raise SafetyError("Capacity state and backup directories must remain private to root")
     data_bytes, app_bytes = _reserve(data_reserve_gib), _reserve(app_reserve_gib)
     previous = _saved(c)
-    script = no_symlinks(Path(c["install_root"]) / "capacity_guard.py")
-    if script.exists() and guard.read(script) != Path(guard.__file__).read_text():
-        raise SafetyError("Existing capacity watcher source differs; it was retained")
     enabled = previous["qbit_guard"] if qbit_guard is None and previous else False if qbit_guard is None else qbit_guard
     if type(enabled) is not bool:
         raise SafetyError("The optional capacity watcher choice must be true or false")
+    units = _unit_snapshot(c, unit_root)
+    watcher = _watcher_snapshot(c, enabled, previous, units)
     if enabled:
         if not c.get("features", {}).get("torrents", True) or c["hosts"]["torrent"] != c["bind_address"]:
             raise SafetyError("The optional capacity watcher must run on this installation's torrent guest")
@@ -160,7 +181,7 @@ def _inputs(c, data_reserve_gib, app_reserve_gib, qbit_guard, runner, request, r
     inventory = Inventory(c, data_bytes, request, resolver, runner)
     if not inventory.rows and not enabled:
         raise SafetyError("No local download applications were selected for capacity protection")
-    return data_bytes, app_bytes, enabled, space, inventory, _unit_snapshot(c, unit_root)
+    return data_bytes, app_bytes, enabled, space, inventory, units, watcher
 
 
 @_safe
@@ -168,12 +189,13 @@ def plan(config, *, data_reserve_gib=50, app_reserve_gib=20, qbit_guard=None,
          runner=None, request=None, secret_resolver=None, unit_root=None):
     runner, request = runner or engine.run, request or engine.request
     resolver, root = secret_resolver or engine.secret_resolver(config), unit_root or UNIT_ROOT
-    data_bytes, app_bytes, enabled, space, inventory, units = _inputs(config, data_reserve_gib, app_reserve_gib,
+    data_bytes, app_bytes, enabled, space, inventory, units, watcher = _inputs(config, data_reserve_gib, app_reserve_gib,
         qbit_guard, runner, request, resolver, root)
     document = {"schema_version": 1, "kind": "capacity-policy", "deployment_id": config["deployment_id"],
                 "host_id": engine.host_identity(), "config_digest": digest(config),
                 "data_reserve_bytes": data_bytes, "app_reserve_bytes": app_bytes, "qbit_guard": enabled,
-                "capacity": space, "native": inventory.public(), "units": units, "limitations": LIMITATIONS}
+                "capacity": space, "native": inventory.public(), "units": units, "watcher_source": watcher,
+                "limitations": LIMITATIONS}
     document["review_hash"] = digest(document)
     return document
 
@@ -238,10 +260,23 @@ def apply(config, reviewed_plan, *, runner=None, request=None, secret_resolver=N
         units = _units(config, root)
         if policy["qbit_guard"]:
             script = no_symlinks(Path(config["install_root"]) / "capacity_guard.py")
-            if script.exists() and guard.read(script) != Path(guard.__file__).read_text():
-                raise SafetyError("Existing capacity watcher source differs; it was retained")
-            if not script.exists():
-                atomic_write(script, Path(guard.__file__).read_text())
+            existing = guard.read(script) if script.exists() else None
+            before = _source_sha(existing) if existing is not None else None
+            desired = Path(guard.__file__).read_text()
+            source = current["watcher_source"]
+            if before != source["before_sha256"] or _source_sha(desired) != source["after_sha256"]:
+                raise SafetyError("Capacity watcher source changed after review; no watcher was replaced")
+            if source["action"] == "upgrade_known_predecessor":
+                original = no_symlinks(Path(config["install_root"]) / "backups" / ("capacity-watcher-before-" + accepted + ".py"))
+                if original.exists():
+                    if guard.read(original) != existing:
+                        raise SafetyError("Capacity watcher backup differs; no watcher was replaced")
+                else:
+                    atomic_write(original, existing)
+            if source["action"] in {"install", "upgrade_known_predecessor"}:
+                atomic_write(script, desired, replace=script.exists())
+                if guard.read(script) != desired:
+                    raise SafetyError("Capacity watcher source readback differs; inspect the retained private backup")
             _unit_snapshot(config, root)
             for path, text in units.items():
                 if not path.exists():

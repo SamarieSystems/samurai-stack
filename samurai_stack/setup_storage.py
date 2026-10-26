@@ -412,6 +412,7 @@ def ensure_site_config(config_path="site.json", *, input_fn=input, output_fn=pri
     else:
         from .setup_local_storage import choose_local_directory
         data, actual = choose_local_directory(input_fn=input_fn, output_fn=output_fn, runner=runner)
+        actual = storage.persistent_identity(actual)
     config["storage"] = {"mode": mode, "data_root": str(data), "allow_existing_contents": False,
                          "expected_mount": {key: actual[key] for key in ("target", "source", "fstype")}}
     output_fn("Media files use numeric Linux IDs. Default 1000:1000 usually matches the first normal user.")

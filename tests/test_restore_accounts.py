@@ -54,6 +54,18 @@ class RestoreTests(TestCase):
         with self.assertRaisesRegex(SafetyError, "directory was replaced"):
             onboarding._load(self.c)
 
+    def test_explicit_restore_accepts_original_stable_filesystem_identity(self):
+        identity = onboarding._identity
+        filesystem = {"target": "/", "source": "UUID=fixture-app-filesystem", "fstype": "ext4"}
+        with mock.patch.object(onboarding, "_identity", side_effect=lambda path, **kw: {
+                **identity(path, **kw), "filesystem": filesystem}):
+            self.prepare()
+            preview = self.plan()
+            self.assertEqual(len(preview["changes"]), len(CORE_APPS))
+            self.assertTrue(all(row["old_directory"]["filesystem"] == filesystem for row in preview["changes"]))
+            self.assertTrue(self.apply(preview)["ok"])
+            self.assertTrue(restore_accounts.verify(self.c, **self.options())["ok"])
+
     def test_plan_is_readonly_apply_changes_only_three_receipt_fields_and_keeps_raw_backup(self):
         self.prepare()
         path = self.root / "state/onboarding.json"

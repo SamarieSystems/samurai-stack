@@ -639,6 +639,14 @@ def runtime_files(c, stage):
     # Leave the legacy root/site.json intact for units not yet reapplied.
     saved_config = stage_path(c, stage) / "site.json"
     write_json(saved_config, c, replace=saved_config.exists())
+    startup_script = root / "runtime_startup.py"
+    atomic_write(startup_script, Path(__file__).with_name("runtime_startup.py").read_text(), replace=startup_script.exists())
+    startup_path = stage_path(c, stage) / "startup.json"
+    startup = {"schema_version": 1, "deployment_id": c["deployment_id"], "stage": stage,
+               "project": naming.project_name(c, stage), "config_digest": digest(c),
+               "compose_sha256": hashlib.sha256(no_symlinks(compose_path(c, stage)).read_bytes()).hexdigest(),
+               "services": sorted(recipe(c, stage)["services"])}
+    write_json(startup_path, startup, replace=startup_path.exists())
     if c["vpn"].get("port_forwarding"):
         source = Path(__file__).resolve().parent.parent / "scripts" / "port_sync.py"
         target = root / "port_sync.py"
@@ -685,7 +693,10 @@ def install_unit(c, stage, runner=run, *, changed=False, actions=None,
     path = no_symlinks(Path(unit_root) / unit_name)
     command = " ".join(["/usr/bin/docker", "--context", "default", *compose_args(c, stage)])
     required_mounts = str(root) if stage == 4 else f"{c['storage']['data_root']} {root}"
-    text = f"# Managed by Samurai Stack: {c['deployment_id']}\n[Unit]\nDescription=Samurai Stack stage {stage}\nRequires=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\nRequiresMountsFor={required_mounts}\nStartLimitIntervalSec=300\nStartLimitBurst=3\n\n[Service]\nType=simple\nUMask=0077\nExecStartPre=/usr/bin/python3 {guard} {config} {stage}\nExecStart={command} up --no-color --abort-on-container-failure --pull never\nExecStop={command} stop --timeout 45\nRestart=on-failure\nRestartSec=15\nTimeoutStopSec=75\n\n[Install]\nWantedBy=multi-user.target\n"
+    # A legitimate storage/VPN delay may last longer than three retries. Keep
+    # retrying failures at a bounded interval, with the guard before every
+    # attempt. An explicit systemctl stop still stays stopped.
+    text = f"# Managed by Samurai Stack: {c['deployment_id']}\n[Unit]\nDescription=Samurai Stack stage {stage}\nRequires=docker.service\nPartOf=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\nRequiresMountsFor={required_mounts}\nStartLimitIntervalSec=0\n\n[Service]\nType=simple\nUMask=0077\nExecStartPre=/usr/bin/python3 {guard} {config} {stage}\nExecStart={command} up --no-color --abort-on-container-failure --pull never\nExecStartPost=/usr/bin/python3 {root / 'runtime_startup.py'} {config} {stage}\nExecStop={command} stop --timeout 45\nRestart=on-failure\nRestartSec=15\nTimeoutStartSec=180\nTimeoutStopSec=75\n\n[Install]\nWantedBy=multi-user.target\n"
     changed = changed or not path.exists() or path.read_text() != text
     atomic_write(path, text, replace=path.exists(), mode=0o644)
     runner(["systemctl", "daemon-reload"])
@@ -699,7 +710,7 @@ def install_unit(c, stage, runner=run, *, changed=False, actions=None,
         loaded = runner(["systemctl", "show", unit_name, "--property=LoadState", "--value"]).stdout.strip()
         if loaded != "not-found":
             raise
-    runner(["systemctl", "restart" if changed else "start", unit_name])
+    runner(["systemctl", "restart" if changed else "start", unit_name], timeout=200)
     return unit_name
 
 

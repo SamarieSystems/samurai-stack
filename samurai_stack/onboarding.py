@@ -88,12 +88,53 @@ def _paths(c):
     return root, root / "state" / "onboarding.json"
 
 
-def _identity(path):
+def _identity(path, *, directory=True):
+    """Bind an owned path to its inode and reboot-stable backing filesystem.
+
+    st_dev is retained for same-boot race checks and strict legacy receipts.
+    It is not a persistent block-device identity: Linux can assign different
+    major/minor numbers after a normal reboot.
+    """
     path = no_symlinks(path)
     info = path.stat()
-    if not stat.S_ISDIR(info.st_mode):
+    if directory and not stat.S_ISDIR(info.st_mode):
         raise SafetyError("Application configuration path is not a directory")
-    return {"device": info.st_dev, "inode": info.st_ino}
+    if not directory and not stat.S_ISREG(info.st_mode):
+        raise SafetyError("Application datastore path is not a regular file")
+    result = {"device": info.st_dev, "inode": info.st_ino}
+    if os.name == "posix":
+        from .storage import mount_identity, persistent_identity
+        mounted = mount_identity(path)
+        # Anonymous/ephemeral mounts do not acquire cross-boot authority from a
+        # reused source label such as "tmpfs" or "overlay".
+        if mounted["fstype"] in {"ext4", "xfs", "btrfs", "nfs", "nfs4"}:
+            mounted = persistent_identity(mounted)
+            result["filesystem"] = {key: mounted[key] for key in ("target", "source", "fstype")}
+        after = path.stat()
+        if (after.st_dev, after.st_ino) != (info.st_dev, info.st_ino):
+            raise SafetyError("Application path changed identity during inspection")
+    return result
+
+
+def same_identity(saved, current):
+    """Compare persistent receipts without silently rebinding legacy records."""
+    if not isinstance(saved, dict) or not isinstance(current, dict):
+        return False
+    if any(type(row.get(key)) is not int or row[key] < 0 for row in (saved, current) for key in ("device", "inode")):
+        return False
+    if saved["inode"] != current["inode"]:
+        return False
+    if "filesystem" not in saved:
+        return saved["device"] == current["device"]
+    for row in (saved, current):
+        fs = row.get("filesystem")
+        if (not isinstance(fs, dict) or set(fs) != {"target", "source", "fstype"}
+                or any(not isinstance(value, str) or not value for value in fs.values())):
+            return False
+        if (not fs["target"].startswith("/") or fs["fstype"] not in {"ext4", "xfs", "btrfs", "nfs", "nfs4"}
+                or (fs["fstype"] in {"ext4", "xfs", "btrfs"} and not fs["source"].startswith("UUID="))):
+            return False
+    return saved["filesystem"] == current["filesystem"]
 
 
 def _load(c, *, allow_restored_directories=False):
@@ -115,7 +156,7 @@ def _load(c, *, allow_restored_directories=False):
             raise SafetyError("Account reservation contains an unknown application")
         if (not allow_restored_directories and (item.get("eligible") is True or item.get("restore_verified") is True)
                 and name in catalog.stage_endpoints(c, 2)):
-            if item.get("directory") != _identity(root / "appdata" / name):
+            if not same_identity(item.get("directory"), _identity(root / "appdata" / name)):
                 raise SafetyError("Reserved application directory was replaced; after restoring verified app data, run ./setup --restore-accounts. Empty or unverified directories cannot be rebound")
     return value
 

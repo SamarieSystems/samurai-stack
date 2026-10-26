@@ -273,6 +273,34 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual((self.root / "secrets/management_credentials.json").read_bytes(), before)
         self.assertTrue(all(len(management.database_state(self.c, name)["users"]) == 1 for name in management.SERVICES))
 
+    def test_persistent_owner_receipts_survive_device_renumbering_without_account_writes(self):
+        identity = onboarding._identity
+        filesystem = {"target": "/", "source": "UUID=fixture-app-filesystem", "fstype": "ext4"}
+
+        def durable(path, **kwargs):
+            return {**identity(path, **kwargs), "filesystem": filesystem}
+
+        with patch.object(onboarding, "_identity", side_effect=durable):
+            self.apply()
+            states = {name: management.database_state(self.c, name) for name in management.SERVICES}
+        original_receipt = (self.root / "state/management-onboarding.json").read_bytes()
+        self.host.payloads.clear()
+
+        def renumbered(path, **kwargs):
+            return {**durable(path, **kwargs), "device": durable(path, **kwargs)["device"] + 64}
+
+        changed = copy.deepcopy(states)
+        for row in changed.values(): row["database"]["device"] += 64
+        with patch.object(onboarding, "_identity", side_effect=renumbered), \
+             patch.object(management, "database_state", side_effect=lambda _c, name, **kw: changed[name]):
+            self.assertEqual({row["action"] for row in self.plan()["apps"].values()}, {"verify_existing_login"})
+            self.assertTrue(management.verify(self.c, runner=self.host, request=self.request)["ok"])
+            changed["dockge"]["database"]["inode"] += 1
+            with self.assertRaisesRegex(SafetyError, "database was replaced"):
+                self.plan()
+        self.assertEqual((self.root / "state/management-onboarding.json").read_bytes(), original_receipt)
+        self.assertFalse(any(row["allow_setup"] for row in self.host.payloads))
+
     def test_lost_setup_response_preserves_intent_and_new_plan_can_verify_existing_login(self):
         self.host.lose_setup = True
         with self.assertRaises(SafetyError) as caught: self.apply()

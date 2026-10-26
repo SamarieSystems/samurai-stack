@@ -3,6 +3,57 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
+## 0.2.2: Reboot identity and supervised startup recovery
+
+October 25, 2026. An actual assisted-installation reboot changed Linux block
+device names. The previous literal `/dev/sdX` guard correctly refused the new
+name but incorrectly treated that volatile name as a persistent disk identity.
+Account/datastore receipts also needed filesystem UUID/export plus inode rather
+than retaining the same kernel device number forever. The immutable v0.2.1 tag
+is retained and marked with its known reboot regression; this patch supersedes
+it. The earlier v0.2.0 draft remains unpublished.
+
+The complete 993-test suite passed on Windows with 46 explicit skips, in the
+isolated Debian guest as root with 14 skips, and as an actual UID/GID 1001
+process with 13 skips. Linux used a private cached Node binary without adding
+a login account, sudo grant or global runtime. All 21 real Compose parser
+scenarios passed without starting containers, and the 143-file public source
+audit reported zero findings. A Linux fixture mode failure was corrected by
+making its synthetic guard files explicitly private; production ownership and
+write-mode checks remain strict.
+
+- The actual portable Bash installer migrated a separate disposable-guest
+  control-file fixture containing the exact released v0.2.1 guards. An incorrect
+  confirmed UUID was refused before control/media changes. The reviewed upgrade
+  updated the selected, canonical and per-stage sites, storage marker, legacy
+  inode receipt and both recognized guards. The old startup guard failed and
+  the upgraded guard passed. A sentinel's bytes, inode and modification time
+  were unchanged, account-enrollment authority remained disabled and no service
+  was started. This proves the packaged control migration, not real account
+  authentication or arbitrary disk adoption.
+- Startup readiness was checked against native Docker containers both with and
+  without health checks. The real Docker check caught a missing-map-key template
+  error that stateful mocks did not model; the corrected optional-health lookup
+  returned valid JSON in both cases. The standalone helper only reads owned
+  container state, binds its expected service inventory to the exact installed
+  Compose bytes and checks the qBittorrent/Gluetun namespace. It has a bounded
+  startup window; it is not a perpetual application monitor.
+- On the assisted ext4 installation, an actual Docker restart with the generated
+  `PartOf=docker.service` policy automatically returned all three stack services
+  and twelve containers. After the final preflight and startup-completion checks
+  were installed, a second real guest reboot returned all twelve containers and
+  all three units without manual starts or recreation. One normal startup retry
+  waited for the configured LAN address; no unit remained failed. Persistent
+  filesystem identities and the enabled 50/20 GiB capacity timer survived.
+  A separate explicit management stop stayed inactive for twenty seconds,
+  longer than the retry interval; only its deliberate start brought it back.
+
+Wrong/missing UUIDs, changed inodes, unknown guard edits, changed reviewed
+controls, read-only/fallback mounts and foreign ownership remain refusal cases.
+The measured reboot path is Debian/ext4; the tests also cover Btrfs subvolume
+and NFS-export identity comparisons. These results do not commission every
+filesystem, VPN provider, hypervisor, playback client or remote-access setup.
+
 ## 0.2.1: Hosted-runner UID fixture correction
 
 October 25, 2026. Hosted Python 3.11 CI exposed a management reservation fixture

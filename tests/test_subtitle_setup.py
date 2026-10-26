@@ -162,6 +162,29 @@ class SubtitleTests(unittest.TestCase):
         self.assertEqual(len(result["notifications"]), 2)
         self.assertFalse(self.writes())
 
+    def test_verify_survives_owned_container_recreation_and_block_device_renumbering(self):
+        self.target["directory"]["filesystem"] = {"target": "/", "source": "UUID=fixture-app-filesystem", "fstype": "ext4"}
+        self.apply(); before = (self.root / "state/subtitle-setup.json").read_bytes()
+        self.vendor.calls.clear()
+        self.target["container"] = "d" * 64
+        self.target["directory"]["device"] = 65
+        self.assertTrue(subtitles.verify(self.c, **self.options())["ok"])
+        self.assertFalse(self.writes())
+        self.assertEqual((self.root / "state/subtitle-setup.json").read_bytes(), before)
+
+    def test_recreated_container_still_rejects_foreign_image_provider_or_datastore(self):
+        self.target["directory"]["filesystem"] = {"target": "/", "source": "UUID=fixture-app-filesystem", "fstype": "ext4"}
+        self.apply(); original = copy.deepcopy(self.target)
+        for key in ("image", "providers", "inode", "filesystem"):
+            with self.subTest(key=key):
+                self.target.clear(); self.target.update(copy.deepcopy(original)); self.target["container"] = "d" * 64
+                if key == "image":self.target["image"] = "sha256:" + "e" * 64
+                elif key == "providers":self.target["providers"][subtitles.DEFAULT_PROVIDERS[0]] = "e" * 64
+                elif key == "inode":self.target["directory"]["inode"] += 1
+                else:self.target["directory"]["filesystem"]["source"] = "UUID=foreign-filesystem"
+                with self.assertRaisesRegex(SafetyError, "target changed"):
+                    subtitles.verify(self.c, **self.options())
+
     def test_unmanaged_matching_name_cannot_be_adopted(self):
         self.vendor.profiles = [subtitles._profile(1)]
         with self.assertRaisesRegex(SafetyError, "existing subtitle profile"):self.plan()

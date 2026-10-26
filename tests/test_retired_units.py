@@ -200,6 +200,16 @@ class RetirementTests(unittest.TestCase):
                 self.assertEqual(self.unit.read_bytes(), changed)
                 self.assertEqual(self.runner.calls, [])
 
+    def test_reboot_safe_generated_policy_is_recognized_but_custom_restart_dependencies_are_not(self):
+        text = generated(self.c).replace('Requires=docker.service\n',
+            'Requires=docker.service\nPartOf=docker.service\nStartLimitIntervalSec=0\n')
+        self.assertEqual(retirement._generated(self.c, 2, text), OLD)
+        for changed in (text.replace('PartOf=docker.service', 'PartOf=unrelated.service'),
+                        text.replace('StartLimitIntervalSec=0', 'StartLimitIntervalSec=15'),
+                        text.replace('Restart=on-failure', 'Restart=always')):
+            with self.subTest(changed=changed), self.assertRaises(SafetyError):
+                retirement._generated(self.c, 2, changed)
+
     def test_duplicate_or_invalid_uuid_marker_refuses_before_commands(self):
         for text in (self.original.decode() + '# Managed by Samurai Stack: ' + OLD + '\n',
                      self.original.decode().replace(OLD, 'not-a-uuid')):

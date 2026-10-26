@@ -114,12 +114,12 @@ def _snapshot(c, *, runner, request, session_factory, secret_resolver, allow_res
         directories[app] = identity
         if not any(directory.iterdir()):
             raise SafetyError("An application directory is empty; an empty or fresh backend cannot authorize restore")
-        if entry.get("directory") != identity:
+        if not onboarding.same_identity(entry.get("directory"), identity):
             if not allow_restored:
                 raise SafetyError("Restored directory identities still need explicit reviewed account reauthorization")
             old = entry.get("directory")
-            if (not isinstance(old, dict) or set(old) != {"device", "inode"}
-                    or any(type(old[key]) is not int or old[key] < 0 for key in old)):
+            if (not isinstance(old, dict) or set(old) not in ({"device", "inode"}, {"device", "inode", "filesystem"})
+                    or not onboarding.same_identity(old, old)):
                 raise SafetyError("The original account directory identity is invalid")
             changes.append({"app": app, "old_directory": old, "new_directory": identity})
     proof = _prove_accounts(c, receipt, apps, request, session_factory, secret_resolver)

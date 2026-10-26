@@ -15,7 +15,7 @@ from samurai_stack import setup_storage as setup
 class FakeHost:
     def __init__(self):
         self.calls = []
-        self.rows = [{"target": "/", "source": "/dev/fixture-root", "fstype": "ext4", "options": "rw,relatime"}]
+        self.rows = [{"target": "/", "source": "/dev/fixture-root", "fstype": "ext4", "options": "rw,relatime", "uuid": "11111111-2222-3333-4444-555555555555"}]
         self.on_mount = None
         self.mount_error = False
         self.interfaces = [
@@ -235,7 +235,7 @@ class GuidedFilesystem(unittest.TestCase):
         self.assertEqual('homelab-media', config['compose_projects']['2'])
         self.assertEqual('homelab-torrents', config['compose_projects']['3'])
         self.assertFalse(config["features"]["photos"] or config["features"]["music"])
-        self.assertEqual(config["storage"]["expected_mount"]["source"], "/dev/fixture-root")
+        self.assertEqual(config["storage"]["expected_mount"]["source"], "UUID=11111111-2222-3333-4444-555555555555")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertFalse(app.exists() or data.exists())
         self.assertFalse(any(call[0] == "mount" for call in self.host.calls))

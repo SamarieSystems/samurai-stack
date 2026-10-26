@@ -15,6 +15,7 @@ from samurai_stack.safety import SafetyError, write_json
 
 
 MOUNT = {"target": "/mnt/media", "source": "/dev/fixture-data", "fstype": "ext4", "options": "rw,relatime"}
+UUID_MOUNT = {**MOUNT, "uuid": "11111111-2222-3333-4444-555555555555"}
 
 
 class MountHost:
@@ -94,14 +95,14 @@ class LocalMountChoiceTests(unittest.TestCase):
             disk.mkdir()
             host = FakeHost()
             host.interfaces = host.interfaces[1:2]
-            host.rows.append({**MOUNT, "target": str(disk)})
+            host.rows.append({**UUID_MOUNT, "target": str(disk)})
             site = root / "site.json"
             answers = InputAnswers(["", str(root / "apps"), "Etc/UTC", "", "2", "", "", "", "", "", "", "", "", "", "yes"])
             with patch.object(local, "_SYSTEM", local._SYSTEM - {"/tmp"}), \
                     patch.object(local, "_capacity", return_value={}):
                 config = setup_storage.ensure_site_config(site, input_fn=answers, output_fn=lambda _: None, runner=host)
             self.assertEqual(config["storage"]["data_root"], str(disk / "samurai"))
-            self.assertEqual(config["storage"]["expected_mount"], {key: host.rows[1][key] for key in ("target", "source", "fstype")})
+            self.assertEqual(config["storage"]["expected_mount"], {**{key: host.rows[1][key] for key in ("target", "fstype")}, "source": "UUID=" + UUID_MOUNT["uuid"]})
             self.assertFalse((disk / "samurai").exists())
             self.assertFalse(any(call[0] in {"mount", "chown", "mv", "rm"} for call in host.calls))
 
@@ -142,8 +143,8 @@ class FreshCorrectionTests(unittest.TestCase):
         if os.name == "posix" and os.geteuid() != 0:
             self.patch(registry, "_owner")
         self.guards = self.patch(local, "_guards")
-        self.choose = self.patch(local, "choose_local_directory", return_value=(ChoicePath(), MOUNT))
-        self.mount = self.patch(storage, "mount_identity", return_value=MOUNT)
+        self.choose = self.patch(local, "choose_local_directory", return_value=(ChoicePath(), UUID_MOUNT))
+        self.mount = self.patch(storage, "mount_identity", return_value=UUID_MOUNT)
         self.draft = self.patch(registry, "draft_directory", return_value=self.backups)
 
     def patch(self, target, name, **kwargs):
@@ -161,7 +162,7 @@ class FreshCorrectionTests(unittest.TestCase):
         for name in self.c.keys() - {"storage"}:
             self.assertEqual(updated[name], self.c[name])
         self.assertEqual(updated["storage"]["data_root"], "/mnt/media/new-empty-tree")
-        self.assertEqual(updated["storage"]["expected_mount"], {key: MOUNT[key] for key in ("target", "source", "fstype")})
+        self.assertEqual(updated["storage"]["expected_mount"], {**{key: MOUNT[key] for key in ("target", "fstype")}, "source": "UUID=" + UUID_MOUNT["uuid"]})
         self.assertIs(updated["storage"]["allow_existing_contents"], False)
         saved = list(self.backups.glob("site-before-storage-*.json"))
         self.assertEqual(len(saved), 1)
@@ -179,13 +180,13 @@ class FreshCorrectionTests(unittest.TestCase):
         self.draft.assert_not_called()
 
     def test_data_or_mount_change_during_review_refuses_config_write(self):
-        self.choose.return_value = (ChoicePath(occupied=True), MOUNT)
+        self.choose.return_value = (ChoicePath(occupied=True), UUID_MOUNT)
         with self.assertRaisesRegex(SafetyError, "became occupied"):
             self.correct()
         self.assertEqual(self.site.read_bytes(), self.before)
         self.assertFalse(list(self.backups.iterdir()))
-        self.choose.return_value = (ChoicePath(), MOUNT)
-        self.mount.return_value = {**MOUNT, "source": "/dev/swapped-device"}
+        self.choose.return_value = (ChoicePath(), UUID_MOUNT)
+        self.mount.return_value = {**UUID_MOUNT, "uuid": "different-filesystem"}
         with self.assertRaisesRegex(SafetyError, "mount changed"):
             self.correct()
         self.assertEqual(self.site.read_bytes(), self.before)

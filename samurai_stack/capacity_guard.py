@@ -113,14 +113,32 @@ def local_run(argv, **kwargs):
     return subprocess.run(argv, text=True, capture_output=True, **kwargs)
 
 
+def stable_mount(row):
+    """Canonical local block filesystems by UUID; keep subvolume/export identity."""
+    result = {key: row[key] for key in ('target', 'source', 'fstype')}
+    if result['fstype'] in {'ext4', 'xfs', 'btrfs'} and result['source'].startswith('/dev/'):
+        identifier = row.get('uuid')
+        if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,128}', identifier):
+            raise ValueError('local block filesystem UUID unavailable')
+        suffix = result['source'][result['source'].find('['):] if '[' in result['source'] else ''
+        result['source'] = 'UUID=' + identifier + suffix
+    return result
+
+
 def capacities(config, runner=local_run):
     result = {}
     for kind, text in (("data", config["storage"]["data_root"]), ("app", config["install_root"])):
         path = clean(text)
-        rows = json.loads(call(runner, ["findmnt", "--json", "--target", str(path), "--output", "TARGET,SOURCE,FSTYPE,OPTIONS"]))["filesystems"]
+        rows = json.loads(call(runner, ["findmnt", "--json", "--target", str(path), "--output", "TARGET,SOURCE,FSTYPE,OPTIONS,UUID"]))["filesystems"]
         if len(rows) != 1 or "rw" not in rows[0]["options"].split(","):
             raise GuardError("Capacity guard cannot prove a unique writable backing filesystem")
         mount = {k: rows[0][k] for k in ("target", "source", "fstype")}
+        if (kind == "data" and config["storage"]["expected_mount"]["source"].startswith("UUID=")
+                or kind == "app" and rows[0].get("uuid")):
+            try:
+                mount = stable_mount(rows[0])
+            except (KeyError, TypeError, ValueError):
+                raise GuardError("Capacity filesystem UUID cannot be verified; no local fallback") from None
         if kind == "data":
             if mount != config["storage"]["expected_mount"]:
                 raise GuardError("Capacity data mount differs; no local fallback is permitted")

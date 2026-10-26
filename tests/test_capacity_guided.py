@@ -54,6 +54,15 @@ class GuidedCapacityTests(unittest.TestCase):
             self.assertTrue(self.ui.capacity_policy(self.c))
         invoke.assert_called_once()
 
+    def test_known_watcher_upgrade_is_explained_before_approval_and_can_be_declined(self):
+        self.plan['watcher_source'] = {'action': 'upgrade_known_predecessor'}
+        self.read.side_effect = ['y', '', '', 'n']
+        with mock.patch.object(self.ui, 'invoke', return_value=(0, self.plan)) as invoke:
+            self.assertTrue(self.ui.capacity_policy(self.c))
+        invoke.assert_called_once()
+        self.assertIn('exact released capacity watcher', '\n'.join(self.messages))
+        self.assertIn('private backup', '\n'.join(self.messages))
+
     def test_verified_saved_policy_automatic_retry_preserves_reserves_without_prompts(self):
         self.saved.return_value = {'data_reserve_bytes': 80 * capacity.GIB, 'app_reserve_bytes': 24 * capacity.GIB, 'qbit_guard': True}
         with mock.patch.object(self.ui, 'invoke', return_value=(0, {'ok': True})) as invoke:

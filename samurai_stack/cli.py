@@ -69,6 +69,8 @@ def initialize(args):
     if sys.platform.startswith("linux"):
         try:
             identity = storage.mount_identity(c["storage"]["data_root"])
+            if c["storage"]["mode"] == "local":
+                identity = storage.persistent_identity(identity)
             print("Observed backing mount: " + json.dumps(identity))
         except SafetyError:
             pass
@@ -138,6 +140,13 @@ def parser():
     capacity.add_argument("--out", default="capacity-plan.json")
     capacity.add_argument("--plan")
     capacity.add_argument("--accept-plan")
+    upgrade = commands.add_parser("storage-identity", help="Review a known local filesystem UUID upgrade after block-device renumbering")
+    upgrade.add_argument("action", choices=["plan", "apply"])
+    upgrade.add_argument("--data-uuid", help="Plan only: independently confirmed original media filesystem UUID")
+    upgrade.add_argument("--app-uuid", help="Plan only: independently confirmed original application filesystem UUID")
+    upgrade.add_argument("--out", default="storage-identity-plan.json")
+    upgrade.add_argument("--plan")
+    upgrade.add_argument("--accept-plan")
     for name in ["plan", "apply", "configure", "verify", "status", "access"]:
         cmd = commands.add_parser(name)
         cmd.add_argument("stage", type=int, choices=sorted(engine.STAGES))
@@ -265,6 +274,20 @@ def main(argv=None):
                     if document.get("review_hash") != args.accept_plan:
                         raise SafetyError("Capacity reviewed plan hash does not match")
                     result = capacity.apply(c, document)
+            elif args.command == "storage-identity":
+                from . import storage_upgrade
+                if args.action == "plan":
+                    if not args.data_uuid or not args.app_uuid:
+                        raise SafetyError("Storage identity review requires the original --data-uuid and --app-uuid")
+                    result = storage_upgrade.plan(c, args.config, expected_data_uuid=args.data_uuid, expected_app_uuid=args.app_uuid)
+                    write_json(args.out, result)
+                else:
+                    if args.data_uuid or args.app_uuid or not args.plan or not args.accept_plan:
+                        raise SafetyError("Storage identity apply requires --plan and --accept-plan; UUID choices belong in the reviewed plan")
+                    document = json.loads(private_read(args.plan))
+                    if document.get('review_hash') != args.accept_plan:
+                        raise SafetyError("Storage identity reviewed plan hash does not match")
+                    result = storage_upgrade.apply(c, document)
             elif args.command == "inspect":
                 result = {"platform": sys.platform, "cpus": os.cpu_count(), "role": c.get("role", "all"),
                           "storage": storage.check_mount(c), "gpu_mode": c["hardware"]["acceleration"]}

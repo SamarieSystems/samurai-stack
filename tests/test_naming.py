@@ -183,6 +183,19 @@ class InstalledNameTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, 'generated paths'):
             naming.check_installed_names(self.c)
 
+    def test_owned_reboot_safe_unit_keeps_name_authority_on_retry(self):
+        from test_retired_units import generated
+        self.unit_root.mkdir(mode=0o755)
+        unit = self.unit_root / 'samurai-homelab-4.service'
+        text = generated(self.c, stage=4, old=self.c['deployment_id']).replace('Requires=docker.service\n',
+            'Requires=docker.service\nPartOf=docker.service\nStartLimitIntervalSec=0\n')
+        unit.write_text(text); unit.chmod(0o644)
+        naming.check_installed_names(self.c)
+        changed = dict(self.c, compose_projects={'4': 'different-tools'})
+        with self.assertRaisesRegex(SafetyError, 'Restore its original compose_projects'):
+            naming.check_installed_names(changed)
+        self.assertEqual(unit.read_text(), text)
+
     def test_permission_failure_is_actionable_and_never_ignored_as_no_install(self):
         units = Mock(side_effect=AssertionError('Unknown canonical identity must stop inspection'))
         with patch.object(naming, '_registered_names', side_effect=PermissionError('fixture-private-path')), \

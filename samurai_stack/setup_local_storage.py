@@ -263,6 +263,7 @@ def choose_replacement(config, config_path, *, input_fn=input, output_fn=print, 
     output_fn("The current media path uses the VM OS filesystem: " + config["storage"]["data_root"])
     output_fn("Choose a mounted data filesystem and a NEW EMPTY child. Existing media and old markers are never adopted, moved or erased.")
     data, identity = choose_local_directory(input_fn=input_fn, output_fn=output_fn, runner=runner, require_mounted=True)
+    identity = storage.persistent_identity(identity)
     updated = deepcopy(config)
     updated["storage"].update(mode="local", data_root=str(data), allow_existing_contents=False,
                                expected_mount={key: identity[key] for key in ("target", "source", "fstype")})
@@ -275,7 +276,7 @@ def choose_replacement(config, config_path, *, input_fn=input, output_fn=print, 
     no_symlinks(data)
     if data.exists() and (not data.is_dir() or any(data.iterdir())):
         raise SafetyError("The new directory became occupied during review. No configuration was changed.")
-    actual = storage.mount_identity(data, runner)
+    actual = storage.persistent_identity(storage.mount_identity(data, runner))
     if (any(actual.get(key) != identity[key] for key in ("target", "source", "fstype"))
             or "rw" not in actual.get("options", "").split(",") or "ro" in actual.get("options", "").split(",")):
         raise SafetyError("The selected backing mount changed during review. No configuration was changed.")

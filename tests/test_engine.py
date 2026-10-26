@@ -1,5 +1,6 @@
 """Coordinator boundary tests; commands, APIs and production writes are injected."""
 from contextlib import ExitStack, contextmanager, nullcontext
+import configparser
 import copy
 import json
 from pathlib import Path
@@ -130,6 +131,7 @@ class EngineTests(unittest.TestCase):
         management['storage']['expected_mount'] = {'target': '/', 'source': '/dev/other', 'fstype': 'ext4'}
         for stage in (2, 4):
             engine.stage_path(media, stage).mkdir(parents=True)
+            engine.compose_path(media, stage).write_text('{"services":{}}')
         legacy = self.root / 'site.json'
         legacy.write_text('legacy guard configuration retained for unreapplied units\n')
         legacy_before = legacy.read_bytes()
@@ -475,6 +477,34 @@ class ObsoleteUnitIntegrationTests(unittest.TestCase):
         module = types.ModuleType("samurai_stack.retired_units")
         module.retire_conflicting = function
         return mock.patch.dict(sys.modules, {"samurai_stack.retired_units": module})
+
+    def test_generated_units_retry_guarded_failures_without_expiring_or_overriding_manual_stops(self):
+        self.unit.unlink()
+        root = Path(self.c["install_root"])
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        for stage in (2, 3, 4, 5, 6):
+            with self.subTest(stage=stage), mock.patch.object(engine, "runtime_files",
+                    return_value=(root, root / "runtime_guard.py", root / "site.json")):
+                name = engine.install_unit(self.c, stage, runner, unit_root=self.units, archive_root=self.archive)
+                unit = configparser.ConfigParser(interpolation=None)
+                unit.read(self.units / name)
+                # After many failed startup attempts, systemd must still reach
+                # the same guard, rather than remain start-limit-hit forever.
+                self.assertEqual("0", unit["Unit"]["StartLimitIntervalSec"])
+                self.assertNotIn("StartLimitBurst", unit["Unit"])
+                self.assertEqual("on-failure", unit["Service"]["Restart"])
+                self.assertEqual("15", unit["Service"]["RestartSec"])
+                self.assertEqual("180", unit["Service"]["TimeoutStartSec"])
+                self.assertEqual("/usr/bin/python3 " + str(root / "runtime_guard.py") + " "
+                                 + str(root / "site.json") + " " + str(stage), unit["Service"]["ExecStartPre"])
+                self.assertEqual("/usr/bin/python3 " + str(root / "runtime_startup.py") + " "
+                                 + str(root / "site.json") + " " + str(stage), unit["Service"]["ExecStartPost"])
+                self.assertEqual("docker.service", unit["Unit"]["Requires"])
+                self.assertEqual("docker.service", unit["Unit"]["PartOf"])
+                required = str(root) if stage == 4 else self.c["storage"]["data_root"] + " " + str(root)
+                self.assertEqual(required, unit["Unit"]["RequiresMountsFor"])
+                self.assertTrue(unit["Service"]["ExecStop"].endswith(" stop --timeout 45"))
+                self.assertEqual(runner.call_args.kwargs, {"timeout": 200})
 
     def test_foreign_unit_is_archived_before_runtime_files_are_overwritten(self):
         order, actions = [], []

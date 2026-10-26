@@ -17,6 +17,12 @@ a new empty data directory; phase 3 obtains new application credentials.
 Use the remaining resume procedures when preserving an existing installation.
 They are not the fresh-start procedure. See [fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
 
+For a retained local installation from 0.2.0/0.2.1, use the
+[reviewed filesystem UUID upgrade](STORAGE.md#upgrade-an-existing-local-installation)
+when its saved source uses a volatile `/dev/sdX` name. It updates proven current
+control bindings together and preserves media/appdata. Deleting state or editing
+only the marker is not the recovery path.
+
 ## Keep installation state separate from source
 
 Alpha 6 saves the verified private site at
@@ -85,6 +91,14 @@ editing mounts or adopting another installation's marker.
 `plan` inspects the current host and proposed stage. `apply` creates only that stage's artifacts. `configure` links supported application settings through their APIs. `verify` checks persisted settings and running services. None of these commands destroys containers, volumes or media as rollback.
 
 If an apply fails, inspect `install_root/state/stage-N.json`, the stage Compose file, image lock and the service journal. Vendor logs can contain credentials; do not paste them publicly without checking them. Complete partial enrollment, generate a new plan using a new filename, and retry. Images already locked remain fixed.
+
+Current generated units retry failures every fifteen seconds through their
+storage and LAN preflight checks. A VPN stage also waits for its default route.
+A bounded startup-completion check requires the expected owned containers to
+be running and healthy where health checks exist, preventing an alive but hung
+Compose supervisor from claiming startup success. This is a startup check, not
+continuous application monitoring. Docker restart jobs propagate to the stack
+units; an explicit `systemctl stop` of a stack unit stays stopped.
 
 A stale apply lock means the earlier process may still exist. Read the recorded PID/host/time and confirm that process is gone on the recorded host. Preserve the lock under a timestamped recovery filename before another apply. Do not clear a lock simply because a command is taking a while.
 

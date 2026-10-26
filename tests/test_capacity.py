@@ -321,6 +321,71 @@ class CapacityTests(unittest.TestCase):
             self.plan(qbit_guard=True)
         self.assertEqual(script.read_text(), 'unrelated public source\n')
 
+    def test_known_owned_predecessor_upgrade_is_reviewed_backed_up_and_idempotent(self):
+        self.apply(self.plan(qbit_guard=True))
+        script = self.app / 'capacity_guard.py'
+        predecessor = '# Synthetic released predecessor for upgrade transaction test.\n'
+        script.write_bytes(predecessor.encode())
+        old_sha = capacity._source_sha(predecessor)
+        with patch.object(capacity, 'WATCHER_PREDECESSORS', frozenset({old_sha})):
+            self.http.clear()
+            reviewed = self.plan(qbit_guard=True)
+            self.assertEqual(reviewed['watcher_source'], {
+                'before_sha256': old_sha, 'after_sha256': capacity._source_sha(Path(guard.__file__).read_text()),
+                'action': 'upgrade_known_predecessor'})
+            self.assertEqual(script.read_text(), predecessor)
+            self.assertTrue(all(row[0] == 'GET' or row[1].endswith('/auth/login') for row in self.http))
+            self.assertTrue(self.apply(reviewed)['ok'])
+            backup = self.app / 'backups' / ('capacity-watcher-before-' + reviewed['review_hash'] + '.py')
+            self.assertEqual(backup.read_text(), predecessor)
+            if os.name == 'posix':
+                self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(script.read_text(), Path(guard.__file__).read_text())
+            retried = self.plan(qbit_guard=True)
+            self.assertEqual(retried['watcher_source']['action'], 'keep')
+            self.assertTrue(self.apply(retried)['ok'])
+            self.assertEqual([backup], list((self.app / 'backups').glob('capacity-watcher-before-*.py')))
+
+    def test_known_source_without_an_existing_owned_policy_and_units_is_never_adopted(self):
+        script = self.app / 'capacity_guard.py'
+        predecessor = '# Synthetic predecessor is not proof of installation ownership.\n'
+        script.write_bytes(predecessor.encode()); script.chmod(0o600)
+        with patch.object(capacity, 'WATCHER_PREDECESSORS', frozenset({capacity._source_sha(predecessor)})):
+            with self.assertRaisesRegex(SafetyError, 'supported owned predecessor'):
+                self.plan(qbit_guard=True)
+        self.assertEqual(self.http, [])
+        self.assertEqual(list((self.app / 'backups').iterdir()), [])
+        self.assertEqual(script.read_text(), predecessor)
+
+    def test_changed_predecessor_after_review_refuses_before_native_or_source_writes(self):
+        self.apply(self.plan(qbit_guard=True))
+        script = self.app / 'capacity_guard.py'
+        predecessor = '# Synthetic released predecessor for stale review test.\n'
+        script.write_bytes(predecessor.encode())
+        with patch.object(capacity, 'WATCHER_PREDECESSORS', frozenset({capacity._source_sha(predecessor)})):
+            reviewed = self.plan(qbit_guard=True)
+            changed = predecessor + '# An administrator edited the installed watcher.\n'
+            script.write_bytes(changed.encode())
+            before_policy = capacity.policy_path(self.c).read_bytes()
+            self.http.clear(); self.calls.clear()
+            with self.assertRaisesRegex(SafetyError, 'supported owned predecessor'):
+                self.apply(reviewed)
+            self.assertEqual(self.http, [])
+            self.assertEqual(script.read_text(), changed)
+            self.assertEqual(capacity.policy_path(self.c).read_bytes(), before_policy)
+            self.assertEqual([], list((self.app / 'backups').glob('capacity-watcher-before-*.py')))
+
+    def test_missing_generated_unit_does_not_authorize_a_known_predecessor_upgrade(self):
+        self.apply(self.plan(qbit_guard=True))
+        script = self.app / 'capacity_guard.py'
+        predecessor = '# Synthetic predecessor with missing generated service.\n'
+        script.write_bytes(predecessor.encode())
+        (self.units / 'samurai-homelab-capacity-guard.service').unlink()
+        with patch.object(capacity, 'WATCHER_PREDECESSORS', frozenset({capacity._source_sha(predecessor)})):
+            with self.assertRaisesRegex(SafetyError, 'supported owned predecessor'):
+                self.plan(qbit_guard=True)
+        self.assertEqual(script.read_text(), predecessor)
+
     def test_wrong_installation_marker_stops_before_any_endpoint_credentials(self):
         write_json(self.app / '.samurai-install.json', {'deployment_id': 'foreign'}, replace=True)
         with self.assertRaisesRegex(SafetyError, 'does not own'):

@@ -83,6 +83,13 @@ watcher question. Only the exact generated owned units are stopped/disabled;
 native application floors remain, and downloads are not resumed. A changed
 or foreign unit/source file is retained for deliberate review.
 
+A capacity review can also upgrade the exact released v0.2.1 watcher after
+proving its existing policy and both generated units belong to this installation.
+The review binds the old and new source hashes and saves the old script privately
+as `backups/capacity-watcher-before-REVIEW_HASH.py` before replacement. Local edits
+and unknown watcher versions are retained. A legacy storage identity must first
+complete the separately reviewed storage UUID upgrade.
+
 ## Advanced reviewed interface
 
 The normal Bash entry points remain `./setup` and `./stack`. Python implements

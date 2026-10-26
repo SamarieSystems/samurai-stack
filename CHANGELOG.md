@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.2.2 - 2026-10-25
+
+- Fix a reboot regression where ordinary Linux block-device renumbering made
+  a valid media filesystem look like a replacement disk. New local block-backed
+  storage records its filesystem UUID, mountpoint, filesystem type and Btrfs
+  subvolume where applicable. Missing, read-only or different storage still
+  fails closed before application startup.
+- Add an explicit reviewed upgrade for existing local installations. Confirm
+  the original media/application filesystem UUIDs, retain deployment markers
+  and application inodes, and update current configuration, dependent receipts
+  and recognized guards together with private original-content backups. Media,
+  account databases, credentials and VPN settings are retained.
+- Bind new account and management-database receipts to a persistent filesystem
+  UUID/export identity plus the original inode. Keep strict transaction-time device/inode
+  checks and require deliberate review for legacy receipts. Verify a recreated
+  owned Bazarr container through its image, mounts, providers and persistent
+  application directory instead of treating its old container ID as permanent.
+- Keep guarded systemd failure retries running at a 15-second interval instead
+  of permanently exhausting a three-attempt limit. Propagate Docker restart
+  jobs to generated stack services, while explicit stack stops stay stopped.
+  Recognize both historical and current exact generated units in recovery and
+  installed-project checks.
+- Wait for the configured LAN address before launch and the default route before
+  VPN launch. Add bounded owned-container startup completion checks so a hung
+  Compose supervisor with exited containers fails and retries through the
+  original storage/network guards instead of appearing successfully started.
+- Permit reviewed replacement of the exact released v0.2.1 capacity watcher
+  after proving its existing owned policy and generated units. Bind old/new
+  source hashes, keep a private source backup and retain unknown local edits.
+- Supersede the immutable v0.2.1 release after its actual reboot regression;
+  retain earlier tags and validation history instead of rewriting them.
+
 ## 0.2.1 - 2026-10-25
 
 - Correct a management reservation test that assumed temporary application

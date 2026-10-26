@@ -150,6 +150,36 @@ class GuidedSetup:
             raise SafetyError('First choose step 2, Connect storage. It saves your answers for later steps.')
         return load_config(self.config_path)
 
+    def upgrade_storage_identity(self):
+        """One reviewed recovery action; never guess a prior disk from sdX."""
+        from . import storage_upgrade
+        c = self.config()
+        current = storage_upgrade.observed(c)
+        self.say('Upgrade local storage identity after a reboot changed Linux disk names.')
+        self.say('Current mounted media: ' + json.dumps(current['data'], sort_keys=True))
+        self.say('Current mounted applications: ' + json.dumps(current['app'], sort_keys=True))
+        self.say('Confirm the ORIGINAL filesystem UUIDs from your fstab, earlier inventory or backup. Do not infer them from the current /dev/sdX letters.')
+        data_uuid = self.read('Original media filesystem UUID, or Enter to pause: ').strip()
+        app_uuid = self.read('Original application filesystem UUID, or Enter to pause: ').strip()
+        if not data_uuid or not app_uuid:
+            self.say('Paused. No configuration or media was changed.')
+            return False
+        document = storage_upgrade.plan(c, self.config_path, expected_data_uuid=data_uuid,
+            expected_app_uuid=app_uuid, registry_root=self.registry_root)
+        path = self._state_dir() / ('storage-identity-' + document['review_hash'] + '.json')
+        if not path.exists():
+            write_json(path, document)
+        self.say('Private reviewed plan and exact before-file backup content: ' + str(path))
+        for row in document['changes']:
+            self.say('  Update control file: ' + row['path'])
+        self.say('Media, accounts, databases, VPN settings and running services are retained.')
+        if not self.yes('Apply this exact control-file recovery?', False):
+            return False
+        result = storage_upgrade.apply(c, document, registry_root=self.registry_root)
+        self.say('Filesystem UUID identities upgraded. Backup: ' + result['backup'])
+        self.say('Resume the existing numbered application/torrent steps to verify and restart their owned services. No fresh setup or data deletion is needed.')
+        return True
+
     def invoke(self, arguments, activity):
         """Keep advanced JSON/vendor errors private; never put secret values in argv."""
         attempt = self._state_dir() / ('attempt-' + uuid.uuid4().hex)
@@ -554,6 +584,9 @@ class GuidedSetup:
             self.say('  ' + APP_NAMES.get(service, service) + ': ' + json.dumps(item.get('after', {}), sort_keys=True))
         self.say('  Data reserve: ' + str(data_gib) + ' GiB. Application reserve: ' + str(app_gib)
                  + ' GiB. qBit watcher: ' + ('enabled.' if enabled else 'disabled.'))
+        if document.get('watcher_source', {}).get('action') == 'upgrade_known_predecessor':
+            self.say('  Upgrade the exact released capacity watcher after preserving its source in a private backup.')
+            self.say('  Existing thresholds, incomplete-download scope and VPN safeguards remain enforced.')
         self.say('Private review: ' + str(path))
         if not self.yes('Apply these reviewed free-space safeguards and verify the saved settings?', False):
             self.say('Capacity settings were kept. No downloads were resumed or deleted.')
@@ -1190,7 +1223,10 @@ def main(argv=None):
     parser.add_argument('--quality-profiles', action='store_true', help='Review optional HD/original-audio and size policy only')
     parser.add_argument('--capacity', action='store_true', help='Review native free-space thresholds and the optional owned qBit pause watcher')
     parser.add_argument('--restore-accounts', action='store_true', help='Review account directory identity after a verified backup restore')
+    parser.add_argument('--upgrade-storage-identity', action='store_true', help='Review known original filesystem UUIDs after local block-device names changed; no media/account changes')
     args = parser.parse_args(argv)
+    if args.upgrade_storage_identity and (args.fresh or args.recover or args.choose_storage or args.step or args.hardlinks or args.quality_profiles or args.restore_accounts or args.capacity):
+        parser.error('Choose --upgrade-storage-identity alone, with an optional explicit --config')
     if args.fresh and (args.config is not None or args.step or args.recover or args.choose_storage or args.hardlinks or args.quality_profiles or args.restore_accounts or args.capacity):
         parser.error('Use --fresh alone to start a new blank phases 1-6 wizard')
     if args.recover and (args.step or args.hardlinks or args.choose_storage or args.quality_profiles or args.restore_accounts or args.capacity):
@@ -1232,6 +1268,8 @@ def main(argv=None):
         else:
             config_path = resolve_configuration(args.config)
         ui = GuidedSetup(Path(__file__).resolve().parent.parent, config_path)
+        if args.upgrade_storage_identity:
+            return 0 if ui.upgrade_storage_identity() else 2
         if args.choose_storage:
             return 0 if ui.choose_storage() else 2
         if args.hardlinks:

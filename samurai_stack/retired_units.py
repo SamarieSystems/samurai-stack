@@ -78,9 +78,12 @@ def _generated(c, stage, text):
     }
     allowed = {
         'Unit': {'Description': 'Samurai Stack stage ' + str(stage), 'Requires': 'docker.service',
+                 'PartOf': 'docker.service',
                  'After': 'docker.service network-online.target', 'Wants': 'network-online.target',
                  'StartLimitIntervalSec': '300', 'StartLimitBurst': '3'},
         'Service': {'Type': 'simple', 'UMask': '0077', **expected,
+                    'ExecStartPost': '/usr/bin/python3 ' + root + '/runtime_startup.py ' + folder + '/site.json ' + str(stage),
+                    'TimeoutStartSec': '180',
                     'Restart': 'on-failure', 'RestartSec': '15', 'TimeoutStopSec': '75'},
         'Install': {'WantedBy': 'multi-user.target'},
     }
@@ -110,6 +113,8 @@ def _generated(c, stage, text):
                     absolute_path(mount, 'Old managed mount')
             except (ValueError, SafetyError):
                 raise SafetyError('The obsolete service has custom mount requirements; it was retained.') from None
+        elif section == 'Unit' and key == 'StartLimitIntervalSec' and value == '0':
+            pass  # Reboot-safe generated units retry guarded failures indefinitely.
         elif key not in allowed[section] or allowed[section][key] != value:
             raise SafetyError('The obsolete service unit has custom directives; it was retained.')
         if section == 'Service' and key in expected:

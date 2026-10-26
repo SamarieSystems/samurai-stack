@@ -108,6 +108,18 @@ def _providers(value):
     return sorted(value)
 
 
+def _same_persistent_target(saved, current):
+    # Compose can recreate a container after shutdown. _target has already
+    # proved the new container's deployment, pinned image and exact mounts.
+    # Container IDs remain exact during a single reviewed write transaction.
+    keys = {"container", "image", "providers", "directory"}
+    return (isinstance(saved, dict) and isinstance(current, dict) and set(saved) == keys and set(current) == keys
+            and all(isinstance(row["container"], str) and re.fullmatch(r"[a-f0-9]{12,64}", row["container"])
+                    for row in (saved, current))
+            and saved["image"] == current["image"] and saved["providers"] == current["providers"]
+            and onboarding.same_identity(saved["directory"], current["directory"]))
+
+
 def save_provider_credentials(c, provider, supplied):
     """Store optional provider login privately; no login, search or download occurs."""
     root, _ = _paths(c)
@@ -366,7 +378,7 @@ def verify(c, *, runner=None, request=None, secret_resolver=None):
         raise SafetyError("A reviewed verified subtitle policy receipt is required")
     providers = _providers(receipt.get("providers"))
     _space(c, runner)
-    if _target(c, providers, runner) != receipt.get("target"):
+    if not _same_persistent_target(receipt.get("target"), _target(c, providers, runner)):
         raise SafetyError("Bazarr target changed since subtitle setup")
     after, report = _assert_policy(_Api(c, request, secret_resolver or engine.secret_resolver(c)), receipt["profile"], providers)
     _assert_credentials(after, _credentials(c, providers))
