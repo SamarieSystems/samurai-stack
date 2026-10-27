@@ -44,6 +44,10 @@ class ReleaseBuilderTests(unittest.TestCase):
         self.git('config', 'user.email', 'fixture@example.invalid')
         self.git('config', 'core.autocrlf', 'false')
         self.git('config', 'commit.gpgsign', 'false')
+        # These disposable repositories must not leave detached maintenance
+        # writing Git objects while TemporaryDirectory performs strict cleanup.
+        self.git('config', 'maintenance.auto', 'false')
+        self.git('config', 'gc.auto', '0')
         for name in builder.REQUIRED_EXECUTABLES:
             (self.repo / name).chmod(0o755)
         self.git('add', '--all')
