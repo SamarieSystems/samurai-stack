@@ -107,6 +107,8 @@ def parser():
     photos.add_argument("--accept-plan")
     hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
     hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
+    monitor = commands.add_parser("monitor-search", help="Install or verify the owned Sonarr monitoring-change search companion")
+    monitor.add_argument("action", choices=["install", "verify"])
     profiles = commands.add_parser("profiles", help="Review bounded media profiles; explicit request choices can classify metadata-confirmed anime")
     profiles.add_argument("action", choices=["plan", "apply", "verify", "binding-plan", "binding-apply"])
     profiles.add_argument("--global-sizes", action="store_true", help="Explicitly include shared quality size limits in plan/verify")
@@ -200,6 +202,9 @@ def main(argv=None):
             elif args.command == "hardlinks":
                 from . import hardlinks
                 result = hardlinks.run(c, apply=args.apply)
+            elif args.command == "monitor-search":
+                from . import monitor_setup
+                result = (monitor_setup.install if args.action == "install" else monitor_setup.verify)(c)
             elif args.command == "profiles":
                 from . import media_profiles
                 if args.previous_config is not None and args.action not in {"binding-plan", "binding-apply"}:

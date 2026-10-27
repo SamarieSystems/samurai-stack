@@ -96,6 +96,10 @@ Step 3 also offers [future-import naming](docs/MEDIA-NAMING.md), an optional
 [English subtitle policy](docs/SUBTITLES.md) and private
 [indexer intake/readiness](docs/INDEXERS.md). Existing media is not renamed or
 backfilled, and source/provider registration is separate from actual delivery.
+It automatically enables the [Sonarr monitor-change search companion](docs/MONITOR-SEARCH.md):
+an initial baseline leaves the existing backlog alone; later observed monitoring
+enables for missing, aired episodes get bounded native searches. Its private
+state and owned timer survive source updates and reboot.
 
 Use `./setup --capacity` or menu **c** to review free-space safeguards. The
 default suggestion is 50 GiB for data and 20 GiB for application storage,

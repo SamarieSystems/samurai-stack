@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.9 - 2026-10-27
+
+- Automatically search aired, missing Sonarr episodes after an observed change
+  from unmonitored to monitored. Guided media setup installs a persistent
+  companion timer; show, season and individual episode controls keep working
+  through Sonarr's native interface.
+- Record a first-use baseline without searching existing monitored libraries.
+  Preserve pending work across restarts, skip downloaded or queued episodes,
+  and submit explicit episode IDs with durable duplicate suppression and
+  bounded indexer use. Existing quality, language and storage rules remain
+  authoritative; enabling monitoring is not a promise that a release exists.
+- Verify the installed worker under its actual systemd service environment.
+  Keep its state outside the source checkout and leave application accounts,
+  media files, VPN settings and application services unchanged.
+
 ## 0.2.8 - 2026-10-26
 
 - Supersede the unpublished v0.2.7 candidate. Keep subtitle and request-quality

@@ -945,6 +945,8 @@ class GuidedSetup:
         self.say('Connecting the media applications automatically...')
         if not self.wire(2):
             return False
+        self.say('Sonarr monitor-change search timer installed and verified. Initial activation records a baseline without searching the existing backlog.')
+        self.say('Later monitor changes are checked about every 30 seconds; searches remain bounded by the current profile, sources and safety checks.')
         if not self.media_naming(c):
             return False
         if not self.capacity_policy(c, automatic=True):

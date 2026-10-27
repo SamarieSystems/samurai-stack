@@ -47,6 +47,15 @@ viewer, entered through hidden password prompts. **Seerr uses Sign in with
 Jellyfin**, not a separate local password. Leave browser account wizards alone
 while terminal enrollment runs.
 
+The same step automatically installs and verifies the bounded
+[Sonarr monitor-change search companion](MONITOR-SEARCH.md). First activation
+records a baseline without searching the existing backlog. Later observed
+off-to-on monitoring changes for missing, aired episodes trigger explicit native
+episode searches, subject to the existing profiles, sources and safety checks.
+Its private state survives reboot and source updates. A focused existing-install
+command is documented there; no container redeploy or browser setup is needed
+for that companion-only action.
+
 When Usenet is enabled, the terminal also requests the NNTP server, TLS port,
 connection allowance and provider service credentials. It performs an actual
 authenticated connection test with certificate verification enabled and

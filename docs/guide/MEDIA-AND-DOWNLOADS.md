@@ -65,6 +65,16 @@ quality/language policy. See the official
 [Sonarr quick start](https://wiki.servarr.com/sonarr/quick-start-guide) and
 [Radarr FAQ](https://wiki.servarr.com/radarr/faq).
 
+Current guided step 3 also installs a separate
+[Sonarr monitoring-change companion](../MONITOR-SEARCH.md). It baselines the
+existing missing library without searching it, then checks about every 30
+seconds for observed off-to-on monitoring changes on missing, aired episodes.
+Those changes get a bounded native episode search. Existing files, unaired
+episodes and newly observed backlog are not bulk-searched. A rapid off/on toggle
+between polls cannot be observed. Check Sonarr's command result before concluding
+that a lack of downloads means the helper did not run. Radarr monitoring retains
+its native behavior; this helper is specifically for Sonarr episodes.
+
 The installer verifies supported source authentication and advertised coverage;
 it cannot supply subscription accounts or guarantee a result. A Usenet NNTP
 provider downloads the articles; an indexer finds the NZB. They are different

@@ -819,6 +819,9 @@ def configure(c, stage):
         if stage == 3:
             torrent_network_proof(c)
         result = integrations.configure_stage(c, stage, request=request, secret_resolver=secret_resolver(c))
+        if stage == 2 and result.get("ok") is True:
+            from . import monitor_setup
+            result["monitor_search"] = monitor_setup.install(c)
         write_json(stage_path(c, stage) / "configuration-report.json", result, replace=(stage_path(c, stage) / "configuration-report.json").exists())
     return result
 
@@ -843,6 +846,9 @@ def verify(c, stage, runner=run):
         raise SafetyError("Service processes are running but application enrollment or wiring remains incomplete")
     if manual:
         report["manual_enrollment"] = manual
+    if stage == 2 and not manual:
+        from . import monitor_setup
+        report["monitor_search"] = monitor_setup.verify(c, runner=runner)
     report["status"] = "verified_with_manual_checks" if manual else "verified"
     write_json(receipt_path(c, stage), report, replace=True)
     return report
