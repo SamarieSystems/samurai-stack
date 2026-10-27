@@ -7,13 +7,16 @@ Provider presence is established inside the owned pinned image. Registration
 and throttle readback are not proof that a subtitle was found or downloaded.
 """
 from copy import deepcopy
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import uuid
 
 from . import catalog, engine, naming, onboarding, storage
-from .safety import SafetyError, digest, no_symlinks, write_json
+from .safety import SafetyError, atomic_write, digest, no_symlinks, validate_config, write_json
 
 PROFILE_NAME = "Samurai English"  # Exact historical receipt alias, not the new display default.
 DEFAULT_PROVIDERS = ("gestdown",)
@@ -21,6 +24,7 @@ PROVIDERS = {"gestdown": {"scope": "series", "credentials": ()},
              "yifysubtitles": {"scope": "movies", "credentials": ()},
              "opensubtitlescom": {"scope": "series_and_movies", "credentials": ("username", "password")}}
 GIB = 1024 ** 3
+BINDING_SCOPE = "bazarr-stage-2-v1"
 GENERAL = {"serie_default_enabled": True, "movie_default_enabled": True,
            "use_embedded_subs": True, "ignore_pgs_subs": False, "ignore_vobsub_subs": False,
            "ignore_ass_subs": False, "multithreading": False, "concurrent_jobs": 1,
@@ -41,9 +45,32 @@ print(json.dumps(result))
 '''
 
 
+def _configuration(c):
+    """Only deployment, endpoint and persistent-storage authority for Bazarr.
+
+    Runtime image/provider source and directory identities remain independently
+    attested. Photo/music choices cannot change authority over this service.
+    """
+    return {"deployment_id": c["deployment_id"], "install_root": c["install_root"],
+            "bind_address": c["bind_address"], "media_host": c["hosts"]["media"],
+            "media_project": naming.project_name(c, 2), "storage": deepcopy(c["storage"]),
+            "puid": c["puid"], "pgid": c["pgid"]}
+
+
 def _binding(c):
     return {"deployment_id": c["deployment_id"], "host_id": engine.host_identity(),
-            "config_digest": digest(c)}
+            "binding_scope": BINDING_SCOPE, "config_digest": digest(_configuration(c))}
+
+
+def _matches_binding(c, value):
+    if not isinstance(value, dict) or any(value.get(k) != v for k, v in
+            {"deployment_id": c["deployment_id"], "host_id": engine.host_identity()}.items()):
+        return False
+    if value.get("binding_scope") == BINDING_SCOPE:
+        return value.get("config_digest") == digest(_configuration(c))
+    # Legacy authority is accepted only for its exact original full config.
+    # A changed legacy config requires the explicit predecessor-based migration.
+    return "binding_scope" not in value and value.get("config_digest") == digest(c)
 
 
 def _paths(c):
@@ -132,8 +159,10 @@ def save_provider_credentials(c, provider, supplied):
     _account_username(provider, supplied)
     path = root / "secrets" / ("subtitle-provider-" + provider + ".json")
     value = {"schema_version": 1, **_binding(c), "credentials": supplied}
-    if path.exists() and onboarding._private_json(path) != value:
-        raise SafetyError("Saved subtitle provider credentials differ; no credentials were replaced")
+    if path.exists():
+        saved = onboarding._private_json(path)
+        if saved.get("schema_version") != 1 or not _matches_binding(c, saved) or saved.get("credentials") != supplied:
+            raise SafetyError("Saved subtitle provider credentials differ; no credentials were replaced")
     if not path.exists():
         write_json(path, value)
     return provider
@@ -152,7 +181,7 @@ def _credentials(c, providers):
     for name in providers:
         if PROVIDERS[name]["credentials"]:
             value = onboarding._private_json(root / "secrets" / ("subtitle-provider-" + name + ".json"))
-            if any(value.get(k) != v for k, v in _binding(c).items()):
+            if value.get("schema_version") != 1 or not _matches_binding(c, value):
                 raise SafetyError("Subtitle provider input belongs to another installation or configuration")
             creds = value.get("credentials")
             if (not isinstance(creds, dict) or set(creds) != set(PROVIDERS[name]["credentials"])
@@ -234,7 +263,7 @@ def _receipt(c, path):
     if not path.exists():
         return None
     value = onboarding._private_json(path)
-    if value.get("schema_version") != 1 or any(value.get(k) != v for k, v in _binding(c).items()):
+    if value.get("schema_version") != 1 or not _matches_binding(c, value):
         raise SafetyError("Subtitle policy receipt belongs to another host or configuration")
     if not isinstance(value.get("profile"), dict) or value.get("state") not in {"intent", "verified"}:
         raise SafetyError("Subtitle policy receipt has an unsupported structure")
@@ -410,3 +439,96 @@ def verify(c, *, runner=None, request=None, secret_resolver=None):
     after, report = _assert_policy(_Api(c, request, secret_resolver or engine.secret_resolver(c)), receipt["profile"], providers)
     _assert_credentials(after, _credentials(c, providers))
     return report
+
+
+def _binding_migration(c, previous, runner, request, resolver):
+    root, path = _paths(c)
+    validate_config(previous)
+    if _configuration(previous) != _configuration(c):
+        raise SafetyError("Subtitle endpoint, project, storage or media identity changed; no binding was migrated")
+    backup_root = no_symlinks(root / "backups")
+    if (not backup_root.is_dir() or not onboarding._root_owned(backup_root)
+            or (os.name == "posix" and backup_root.stat().st_mode & 0o077)):
+        raise SafetyError("Subtitle binding backups must use an existing root-private managed directory")
+    _space(c, runner)
+    receipt = _receipt(previous, path)
+    if not receipt or receipt.get("state") != "verified":
+        raise SafetyError("Subtitle binding migration requires the original verified policy receipt")
+    profile_id = receipt["profile"].get("profileId")
+    if (type(profile_id) is not int or profile_id < 1 or receipt["profile"] not in
+            (_profile(profile_id), _profile(profile_id, profile_name(c)))):
+        raise SafetyError("Subtitle binding migration does not repair or adopt an edited language profile")
+    providers = _providers(receipt.get("providers"))
+    target = _target(c, providers, runner)
+    if not _same_persistent_target(receipt.get("target"), target):
+        raise SafetyError("Subtitle image, provider source or application directory changed; no binding was migrated")
+    credential_providers = sorted(name for name in PROVIDERS if PROVIDERS[name]["credentials"] and
+        (name in providers or (root / "secrets" / ("subtitle-provider-" + name + ".json")).exists()))
+    credentials = _credentials(previous, credential_providers)
+    selected_credentials = {name: credentials[name] for name in providers if PROVIDERS[name]["credentials"]}
+    api = _Api(c, request, resolver or engine.secret_resolver(c))
+    native, report = _assert_policy(api, receipt["profile"], providers)
+    _assert_credentials(native, selected_credentials)
+    files = [(path, receipt)]
+    for name in credential_providers:
+        supplied = root / "secrets" / ("subtitle-provider-" + name + ".json")
+        files.append((supplied, onboarding._private_json(supplied)))
+    changes = []
+    for file, before in files:
+        if before.get("schema_version") != 1 or not _matches_binding(previous, before):
+            raise SafetyError("Subtitle migration input is not bound to the confirmed predecessor")
+        after = {**before, **_binding(c)}
+        if before != after:
+            raw = file.read_bytes()
+            if json.loads(raw.decode("utf-8")) != before:
+                raise SafetyError("Subtitle binding input changed during review")
+            changes.append((file, before, after, raw))
+    document = {"schema_version": 1, "kind": "subtitle-binding-migration", **_binding(c),
+                "previous_config_digest": digest(previous), "current_config_digest": digest(c),
+                "target": target, "providers": providers, "profile_id": profile_id,
+                "native_snapshot_digest": digest(native), "private_input_digest": digest(credentials),
+                "inactive_private_inputs": sorted(set(credential_providers) - set(providers)),
+                "files": [{"path": str(file), "before_digest": digest(before), "after_digest": digest(after),
+                           "before_sha256": hashlib.sha256(raw).hexdigest(),
+                           "after_sha256": hashlib.sha256((json.dumps(after, indent=2, sort_keys=True) + "\n").encode()).hexdigest()}
+                          for file, before, after, raw in changes],
+                "effects": ["Back up the listed root-private control inputs and change only their binding metadata.",
+                            "Preserve exact native settings, provider credentials, profiles, files and service state.",
+                            "Do not search, download, backfill, reset accounts or restart services."]}
+    document["review_hash"] = digest(document)
+    return document, changes, report
+
+
+def binding_migration_plan(c, previous, *, runner=None, request=None, secret_resolver=None):
+    """Review a known full-config predecessor; observations cannot grant ownership."""
+    return _binding_migration(c, previous, runner or engine.run, request or engine.request, secret_resolver)[0]
+
+
+def apply_binding_migration(c, previous, reviewed, *, runner=None, request=None, secret_resolver=None):
+    if (not isinstance(reviewed, dict) or reviewed.get("kind") != "subtitle-binding-migration"
+            or reviewed.get("review_hash") != digest({k: v for k, v in reviewed.items() if k != "review_hash"})):
+        raise SafetyError("Subtitle binding migration requires its intact reviewed plan")
+    runner, request = runner or engine.run, request or engine.request
+    root, _ = _paths(c)
+    with engine.deployment_lock(c):
+        current, changes, report = _binding_migration(c, previous, runner, request, secret_resolver)
+        if current != reviewed:
+            raise SafetyError("Subtitle binding inputs changed after review; make a fresh migration plan")
+        backup = None
+        if changes:
+            backup = no_symlinks(root / "backups" / ("subtitle-binding-" + uuid.uuid4().hex))
+            backup.mkdir(mode=0o700)
+            write_json(backup / "review.json", current)
+            for index, (path, _, _, raw) in enumerate(changes):
+                atomic_write(backup / (str(index) + "-" + path.name), raw.decode("utf-8"))
+            for path, before, after, raw in changes:
+                if onboarding._private_json(path) != before or path.read_bytes() != raw:
+                    raise SafetyError("Subtitle binding input changed during migration; private backups were retained")
+                write_json(path, after, replace=True)
+        # This verifies metadata and native readback only, including provider
+        # input equality. It never proves delivery by starting a subtitle job.
+        verified = verify(c, runner=runner, request=request, secret_resolver=secret_resolver)
+    return {"ok": True, "scope": BINDING_SCOPE, "files_updated": len(changes),
+            "backup": str(backup) if backup else None, "native_settings_written": 0,
+            "subtitle_jobs_started": 0, "provider_status": verified["provider_status"],
+            "subtitle_delivery": "not_retested"}

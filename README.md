@@ -5,7 +5,7 @@
 
 Build a private media server with a guided installer. Pick a step, review what it will change and enter the requested application credentials. Media accounts, private API keys and application connections are set up in the terminal. You choose the indexers, subtitle providers and quality preferences. Stop and return to the same step without starting over.
 
-**0.2.7.** A staged private media-server installer for the documented Linux guest path, including CPU-only machines. Recorded checks cover real accounts, imports, restores, playback and controlled VPN failure/recovery, with their exact scope in [validation](docs/VALIDATION.md). Commission each new installation's storage, provider accounts, playback and any selected notification delivery before handing it over. See [supported scope](docs/ROADMAP.md) for the remaining boundaries.
+**0.2.8.** A staged private media-server installer for the documented Linux guest path, including CPU-only machines. Recorded checks cover real accounts, imports, restores, playback and controlled VPN failure/recovery, with their exact scope in [validation](docs/VALIDATION.md). Commission each new installation's storage, provider accounts, playback and any selected notification delivery before handing it over. See [supported scope](docs/ROADMAP.md) for the remaining boundaries.
 
 ## Start here
 
@@ -16,7 +16,7 @@ downloads, files, subtitles, maintenance and troubleshooting. The
 acceptance checks. You do not need to run the installer to use Jellyfin.
 
 Inside a **new Debian 13 KVM/QEMU VM**, download `samurai-setup.sh` and
-`SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7).
+`SHA256SUMS` from the [release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.8).
 Copy both files into the same directory in the VM, open a terminal there, then run:
 
 ```sh
@@ -46,7 +46,7 @@ checkout does not create another installation identity. Existing private
 source-tree configurations remain supported with `--config`.
 
 Already running an older source ZIP? Obtain `samurai-setup.sh` from the
-[0.2.7 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.7),
+[0.2.8 release assets](https://github.com/SamarieSystems/samurai-stack/releases/tag/v0.2.8),
 check its supplied `SHA256SUMS` and follow the upgrade path below as root.
 
 **Upgrading an existing 0.2.0/0.2.1 local-disk installation:** first use

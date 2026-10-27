@@ -5,12 +5,18 @@ choice on the same backend, not a second pretend 4K server or duplicate copy.
 No search, acquisition, file move or automatic quality upgrade is performed.
 """
 from copy import deepcopy
+import hashlib
+import json
+import os
 from pathlib import Path
+import re
+import uuid
 
-from . import catalog, engine, hardlinks, integrations, media_profiles, naming, onboarding
-from .safety import SafetyError, digest, no_symlinks, write_json
+from . import catalog, engine, hardlinks, integrations, media_profiles, naming, onboarding, storage
+from .safety import SafetyError, atomic_write, digest, no_symlinks, validate_config, write_json
 
 VERSION = 3
+BINDING_SCOPE = "request-profiles-stage-2-v1"
 VARIANTS = ("hd", "anime_hd", "uhd", "anime_uhd")
 TITLES = {"hd": "1080p English", "anime_hd": "Anime 1080p Dual Audio",
           "uhd": "4K English (opt-in)", "anime_uhd": "Anime 4K Dual Audio (opt-in)"}
@@ -37,8 +43,28 @@ def _path(c):
     return no_symlinks(Path(c["install_root"]) / "state/request-profiles.json")
 
 
+def _configuration(c):
+    """Only the authority over these media endpoints and persistent storage."""
+    return {"deployment_id": c["deployment_id"], "install_root": c["install_root"],
+            "bind_address": c["bind_address"], "media_host": c["hosts"]["media"],
+            "media_project": naming.project_name(c, 2), "storage": deepcopy(c["storage"]),
+            "puid": c["puid"], "pgid": c["pgid"]}
+
+
 def _binding(c):
-    return {"deployment_id": c["deployment_id"], "host_id": engine.host_identity(), "config_digest": digest(c)}
+    return {"deployment_id": c["deployment_id"], "host_id": engine.host_identity(),
+            "binding_scope": BINDING_SCOPE, "config_digest": digest(_configuration(c))}
+
+
+def _matches_binding(c, row):
+    if not isinstance(row, dict) or any(row.get(k) != v for k, v in
+            {"deployment_id": c["deployment_id"], "host_id": engine.host_identity()}.items()):
+        return False
+    if row.get("binding_scope") == BINDING_SCOPE:
+        return row.get("config_digest") == digest(_configuration(c))
+    # An existing full-config receipt is authoritative only for its exact
+    # predecessor. Observing matching native settings cannot rebind ownership.
+    return "binding_scope" not in row and row.get("config_digest") == digest(c)
 
 
 def receipt(c):
@@ -48,7 +74,7 @@ def receipt(c):
     row = onboarding._private_json(path)
     if (row.get("schema_version") != 1 or row.get("policy_version") != VERSION
             or row.get("state") not in {"intent", "verified"}
-            or any(row.get(k) != v for k, v in _binding(c).items())
+            or not _matches_binding(c, row)
             or row.get("profile_names") != profile_names(c)):
         raise SafetyError("The request-profile policy receipt belongs to another installation or policy")
     return row
@@ -493,6 +519,10 @@ def apply(c, reviewed_plan, *, runner=None, request=None, secret_resolver=None):
 
 def verify(c, *, include_global_sizes=False, runner=None, request=None, secret_resolver=None):
     inventory = _inventory(c, include_global_sizes, runner, request, secret_resolver)
+    return _verified(inventory, include_global_sizes)
+
+
+def _verified(inventory, include_global_sizes):
     missing, choices = [], {}
     for app, row in inventory.services.items():
         choices[app] = {kind: value["id"] if value else None for kind, value in row["existing_profiles"].items()}
@@ -519,3 +549,138 @@ def _dropdown_matches(response, expected):
     return (isinstance(rows, list) and len(rows) == 4 and len(expected) == 4
             and all(isinstance(row, dict) and type(row.get("id")) is int for row in rows)
             and {row["id"]: row.get("name") for row in rows} == expected)
+
+
+def _migration_paths(c):
+    onboarding._guard(c)
+    root, _ = onboarding._paths(c)
+    backup = no_symlinks(root / "backups")
+    if (not backup.is_dir() or not onboarding._root_owned(backup)
+            or (os.name == "posix" and backup.stat().st_mode & 0o077)):
+        raise SafetyError("Request binding backups must use an existing root-private managed directory")
+    return root, _path(c)
+
+
+def _migration_targets(c, runner):
+    """Attest existing directories, pinned processes and mounts; never adopt."""
+    engine.check_container_ownership(c, 2, runner)
+    apps = ("sonarr", "radarr", "seerr")
+    onboarding.check_targets(c, apps, runner)
+    reservation = onboarding._load(c)
+    if not reservation:
+        raise SafetyError("Request binding migration needs the original application directory reservations")
+    result = {}
+    recipes = engine.recipe(c, 2)["services"]
+    for app in apps:
+        directory = onboarding._identity(Path(c["install_root"]) / "appdata" / app)
+        saved = reservation["apps"].get(app, {})
+        if not onboarding.same_identity(saved.get("directory"), directory):
+            raise SafetyError("A request application directory changed; no binding was migrated")
+        ids = engine.docker(runner, "ps", "--filter", "status=running", "--filter",
+            "label=com.docker.compose.project=" + naming.project_name(c, 2), "--filter",
+            "label=com.docker.compose.service=" + app, "--format", "{{.ID}}").stdout.split()
+        if len(ids) != 1 or not re.fullmatch(r"[a-f0-9]{12,64}", ids[0]):
+            raise SafetyError("Request policy needs unique owned running media services")
+        cid = ids[0]
+        expected = recipes[app]["image"]
+        image = engine.docker(runner, "image", "inspect", expected, "--format", "{{.Id}}").stdout.strip()
+        image_config = json.loads(engine.docker(runner, "image", "inspect", expected, "--format", "{{json .Config}}").stdout)
+        actual = json.loads(engine.docker(runner, "inspect", cid, "--format", "{{json .Image}}").stdout)
+        config = json.loads(engine.docker(runner, "inspect", cid, "--format", "{{json .Config}}").stdout)
+        mounts = json.loads(engine.docker(runner, "inspect", cid, "--format", "{{json .Mounts}}").stdout)
+        destination = "/app/config" if app == "seerr" else "/config"
+        configs = [m for m in mounts if isinstance(m, dict) and m.get("Destination") == destination] if isinstance(mounts, list) else []
+        data = [m for m in mounts if isinstance(m, dict) and m.get("Destination") == "/data"] if isinstance(mounts, list) else []
+        if (actual != image or not re.fullmatch(r"sha256:[a-f0-9]{64}", image)
+                or not isinstance(config, dict) or not isinstance(image_config, dict)
+                or any(config.get(k) != image_config.get(k) for k in ("Cmd", "Entrypoint"))
+                or (config.get("WorkingDir") or "/") != (image_config.get("WorkingDir") or "/")
+                or len(configs) != 1 or configs[0].get("Type") != "bind" or configs[0].get("RW") is not True
+                or configs[0].get("Source") != str(Path(c["install_root"]) / "appdata" / app)
+                or (app == "seerr" and data)
+                or (app != "seerr" and (len(data) != 1 or data[0].get("Type") != "bind"
+                    or data[0].get("RW") is not True or data[0].get("Source") != c["storage"]["data_root"]))
+                or any(not isinstance(m, dict) or not isinstance(m.get("Destination"), str)
+                    or m["Destination"].startswith((destination + "/", "/data/"))
+                    or m["Destination"] in {"/app", "/lsiopy"} or m["Destination"].startswith("/lsiopy/")
+                    or m["Destination"].startswith("/app/") and m["Destination"] != destination
+                    for m in mounts)):
+            raise SafetyError("Request application image, process or persistent mounts changed; no binding was migrated")
+        result[app] = {"container": cid, "image": image, "directory": directory,
+                       "mounts": [{k: m.get(k) for k in ("Type", "Source", "Destination", "RW")} for m in mounts],
+                       "process": {k: config.get(k) for k in ("Cmd", "Entrypoint", "WorkingDir")}}
+    return result
+
+
+def _binding_migration(c, previous, runner, request, resolver):
+    root, path = _migration_paths(c)
+    validate_config(previous)
+    if _configuration(previous) != _configuration(c):
+        raise SafetyError("Request endpoints, project, storage or media identity changed; no binding was migrated")
+    # Read-only mount and media-identity proof; this runs no hardlink probe.
+    mounted = storage.verify(c, runner)
+    saved = receipt(previous)
+    if not saved or saved.get("state") != "verified":
+        raise SafetyError("Request binding migration requires the original verified policy receipt")
+    targets = _migration_targets(c, runner)
+    inventory = _inventory(previous, False, runner, request, resolver)
+    verified = _verified(inventory, False)
+    if not verified["ok"]:
+        raise SafetyError("Native request profiles or dropdowns changed; no binding was migrated")
+    raw = path.read_bytes()
+    if onboarding._private_json(path) != saved or json.loads(raw.decode("utf-8")) != saved:
+        raise SafetyError("Request policy receipt changed during migration review")
+    after = {**saved, **_binding(c)}
+    changes = [] if after == saved else [(path, saved, after, raw)]
+    reservation = no_symlinks(root / "state/onboarding.json")
+    reservation_raw = reservation.read_bytes()
+    if json.loads(reservation_raw.decode("utf-8")) != onboarding._private_json(reservation):
+        raise SafetyError("Request directory reservation changed during review")
+    document = {"schema_version": 1, "kind": "request-profile-binding-migration", **_binding(c),
+                "previous_config_digest": digest(previous), "current_config_digest": digest(c),
+                "targets": targets, "storage": mounted,
+                "reservation_sha256": hashlib.sha256(reservation_raw).hexdigest(),
+                "native_snapshot_digest": digest(inventory.reviewed(False)), "choices": verified["choices"],
+                "files": [{"path": str(file), "before_digest": digest(before), "after_digest": digest(new),
+                           "before_sha256": hashlib.sha256(content).hexdigest(),
+                           "after_sha256": hashlib.sha256((json.dumps(new, indent=2, sort_keys=True) + "\n").encode()).hexdigest()}
+                          for file, before, new, content in changes],
+                "effects": ["Back up the root-private request receipt and change only its binding metadata.",
+                            "Preserve exact profile IDs, scores, size limits, title assignments, accounts and requests.",
+                            "Do not write native settings, search, download, move files, reset accounts or restart services."]}
+    document["review_hash"] = digest(document)
+    return document, changes
+
+
+def binding_migration_plan(c, previous, *, runner=None, request=None, secret_resolver=None):
+    """Review a captured predecessor; matching settings do not grant ownership."""
+    return _binding_migration(c, previous, runner or engine.run, request or engine.request, secret_resolver)[0]
+
+
+def apply_binding_migration(c, previous, reviewed, *, runner=None, request=None, secret_resolver=None):
+    if (not isinstance(reviewed, dict) or reviewed.get("kind") != "request-profile-binding-migration"
+            or reviewed.get("review_hash") != digest({k: v for k, v in reviewed.items() if k != "review_hash"})):
+        raise SafetyError("Request binding migration requires its intact reviewed plan")
+    runner, request = runner or engine.run, request or engine.request
+    root, _ = _migration_paths(c)
+    with engine.deployment_lock(c):
+        current, changes = _binding_migration(c, previous, runner, request, secret_resolver)
+        if current != reviewed:
+            raise SafetyError("Request binding inputs changed after review; make a fresh migration plan")
+        backup = None
+        if changes:
+            backup = no_symlinks(root / "backups" / ("request-binding-" + uuid.uuid4().hex))
+            backup.mkdir(mode=0o700)
+            write_json(backup / "review.json", current)
+            for path, _, _, raw in changes:
+                atomic_write(backup / path.name, raw.decode("utf-8"))
+            for path, before, after, raw in changes:
+                if onboarding._private_json(path) != before or path.read_bytes() != raw:
+                    raise SafetyError("Request binding input changed during migration; private backup was retained")
+                write_json(path, after, replace=True)
+        verified = verify(c, runner=runner, request=request, secret_resolver=secret_resolver)
+        if not verified["ok"]:
+            raise SafetyError("Request binding metadata was saved but final native readback is incomplete")
+    return {"ok": True, "scope": BINDING_SCOPE, "files_updated": len(changes),
+            "backup": str(backup) if backup else None, "native_settings_written": 0,
+            "searches_started": 0, "choices": verified["choices"]}

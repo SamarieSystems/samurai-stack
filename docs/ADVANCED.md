@@ -20,6 +20,30 @@ from container health and actual acquisition. Hidden credential intake is in
 An intentional application wipe uses the guided `./setup --fresh` entry point,
 not advanced resume commands that require an old site. See [fresh setup](QUICKSTART.md#start-fresh-after-removing-the-old-applications).
 
+### Retain existing media policies after adding optional stages
+
+Current subtitle and four-choice request policies bind to their media-stage
+authority. Enabling photos does not require resetting those applications.
+Older whole-configuration receipts need the actual captured predecessor site
+file. Never remove the receipts or private provider input to bypass a mismatch.
+The [subtitle binding procedure](SUBTITLES.md#existing-subtitle-input-bindings)
+documents the provider-input migration. The equivalent request-policy commands
+are:
+
+```bash
+./stack --config CURRENT_SITE profiles binding-plan --previous-config CAPTURED_OLD_SITE --out request-binding-plan.json
+./stack --config CURRENT_SITE profiles binding-apply --previous-config CAPTURED_OLD_SITE --plan request-binding-plan.json --accept-plan REVIEW_HASH
+./stack --config CURRENT_SITE profiles verify --request-choices
+```
+
+Replace the uppercase path/hash placeholders with your actual private files and
+reviewed hash. Both migrations require an exact verified predecessor and
+unchanged media authority. They attest the owned native services, verify the
+saved policy, back up original control bytes and change binding metadata only.
+They do not change credentials, profile IDs, title assignments, requests, queues,
+subtitle files or service state. A stale review or edited/foreign policy stops
+before replacing a control file. An interrupted update requires a fresh review.
+
 ## 1. Choose where it runs
 
 Use an existing supported Linux VM, or follow [the Proxmox foundation guide](PROXMOX.md)
@@ -51,7 +75,7 @@ If Git is already available on the guest:
 ```sh
 git clone https://github.com/SamarieSystems/samurai-stack.git
 cd samurai-stack
-git checkout v0.2.6
+git checkout v0.2.8
 ./stack --version
 ```
 

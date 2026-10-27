@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, call, patch
 
-from samurai_stack import cli, setup, subtitle_setup
+from samurai_stack import cli, onboarding, setup, subtitle_setup
 from samurai_stack.safety import SafetyError, write_json
 
 
@@ -119,6 +119,7 @@ class SubtitleCliTests(unittest.TestCase):
 
     def setUp(self):
         self.enterContext(patch.object(cli, "load_config", return_value=cli.default_config()))
+        self.enterContext(patch.object(onboarding, '_private_json', return_value=cli.default_config()))
 
     def test_plan_defaults_and_explicit_provider_selection(self):
         for suffix, expected in (([], None), (["--providers", "gestdown"], ["gestdown"])):
@@ -153,6 +154,52 @@ class SubtitleCliTests(unittest.TestCase):
                  patch.object(subtitle_setup, "verify") as verify:
                 code, _, _ = self.run_cli(["subtitles", action, "--providers", "gestdown"])
                 self.assertEqual(code, 1); apply.assert_not_called(); verify.assert_not_called()
+
+    def test_binding_actions_require_exact_predecessor_before_module_call(self):
+        for action in ('binding-plan', 'binding-apply'):
+            with self.subTest(action=action), patch.object(subtitle_setup, 'binding_migration_plan') as plan, \
+                 patch.object(subtitle_setup, 'apply_binding_migration') as apply:
+                code, _, error = self.run_cli(['subtitles', action])
+                self.assertEqual(code, 1); self.assertIn('--previous-config', error)
+                plan.assert_not_called(); apply.assert_not_called()
+
+    def test_binding_plan_uses_previous_configuration_and_writes_review(self):
+        previous = cli.default_config(); previous['features']['photos'] = False
+        current = cli.default_config(); current['features']['photos'] = True
+        document = {'kind': 'subtitle-binding-migration', 'review_hash': 'a'*64}
+        with patch.object(cli, 'load_config', return_value=current), \
+             patch.object(onboarding, '_private_json', return_value=previous) as read_previous, \
+             patch.object(subtitle_setup, 'binding_migration_plan', return_value=document) as plan, \
+             patch.object(cli, 'write_json') as write:
+            code, _, _ = self.run_cli(['subtitles', 'binding-plan', '--previous-config', 'old.json', '--out', 'review.json'])
+        self.assertEqual(code, 0); plan.assert_called_once_with(current, previous)
+        read_previous.assert_called_once_with(Path('old.json'))
+        write.assert_called_once_with('review.json', document)
+
+    def test_binding_apply_checks_hash_before_metadata_migration(self):
+        document = {'kind': 'subtitle-binding-migration', 'review_hash': 'a'*64}
+        with patch.object(cli, 'private_read', return_value=json.dumps(document)), \
+             patch.object(subtitle_setup, 'apply_binding_migration') as apply:
+            code, _, error = self.run_cli(['subtitles', 'binding-apply', '--previous-config', 'old.json',
+                                          '--plan', 'review.json', '--accept-plan', 'bad'])
+        self.assertEqual(code, 1); self.assertIn('hash does not match', error); apply.assert_not_called()
+
+    def test_binding_apply_uses_exact_saved_review_without_native_policy_apply(self):
+        document = {'kind': 'subtitle-binding-migration', 'review_hash': 'a'*64}
+        with patch.object(cli, 'private_read', return_value=json.dumps(document)), \
+             patch.object(subtitle_setup, 'apply_binding_migration', return_value={'ok': True}) as migrate, \
+             patch.object(subtitle_setup, 'apply') as apply:
+            code, _, _ = self.run_cli(['subtitles', 'binding-apply', '--previous-config', 'old.json',
+                                      '--plan', 'review.json', '--accept-plan', document['review_hash']])
+        self.assertEqual(code, 0); self.assertEqual(migrate.call_args.args[2], document); apply.assert_not_called()
+
+    def test_previous_config_cannot_silently_rebind_normal_actions(self):
+        for action in ('plan', 'apply', 'verify'):
+            with self.subTest(action=action), patch.object(subtitle_setup, 'binding_migration_plan') as plan, \
+                 patch.object(subtitle_setup, 'apply_binding_migration') as apply:
+                code, _, error = self.run_cli(['subtitles', action, '--previous-config', 'old.json'])
+                self.assertEqual(code, 1); self.assertIn('only to binding migration', error)
+                plan.assert_not_called(); apply.assert_not_called()
 
 
 if __name__ == "__main__":unittest.main()

@@ -1,15 +1,17 @@
 """Request-choice policy tested against a stateful native-contract model."""
 import copy
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
+import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
-from samurai_stack import catalog, engine, media_profiles, request_profiles as policy
-from samurai_stack.safety import SafetyError
+from samurai_stack import catalog, cli, engine, media_profiles, request_profiles as policy
+from samurai_stack.safety import SafetyError, digest, write_json
 from test_catalog import config
 from test_media_profiles import StarrProfiles
 
@@ -331,6 +333,215 @@ class RequestPolicyTests(unittest.TestCase):
     def test_old_hd_plan_cannot_replace_curated_owner_policy(self):
         self.apply()
         with self.assertRaises(SafetyError):media_profiles.apply(self.c,{'policy_version':2,'review_hash':'0'*64},request=self.vendor,secret_resolver=lambda _: 'fixture-key')
+
+    def test_scoped_binding_survives_unrelated_extras_but_keeps_media_authority(self):
+        self.apply()
+        current=copy.deepcopy(self.c)
+        current['features'].update(photos=False,music=False,dashboard=False)
+        current['hosts']['photos']='192.168.1.80'
+        options={'request':self.vendor,'secret_resolver':lambda _: 'fixture-key'}
+        self.assertTrue(policy.verify(current,**options)['ok'])
+        self.assertEqual(policy.BINDING_SCOPE,policy.receipt(current)['binding_scope'])
+        edits=[('bind_address','192.168.1.99'),('install_root',self.directory.name+'-other'),
+               ('puid',2000),('pgid',2000),('deployment_id','fd969810-006f-4989-b60f-90daf76a58e1')]
+        for key,value in edits:
+            changed=copy.deepcopy(current);changed[key]=value
+            self.assertFalse(policy._matches_binding(changed,policy.receipt(current)))
+        for key,value in [('hosts',{'media':'192.168.1.99'}),('storage',{'data_root':'/different'})]:
+            changed=copy.deepcopy(current);changed[key].update(value)
+            self.assertFalse(policy._matches_binding(changed,policy.receipt(current)))
+        changed=copy.deepcopy(current);changed['projects']={'media':'another-media'}
+        saved=policy.receipt(current)
+        with patch.object(policy.naming,'project_name',return_value='another-media'):
+            self.assertFalse(policy._matches_binding(changed,saved))
+
+    def migration(self):
+        self.apply()
+        path=policy._path(self.c)
+        legacy=policy.receipt(self.c);legacy.pop('binding_scope');legacy['config_digest']=digest(self.c)
+        write_json(path,legacy,replace=True)
+        previous=copy.deepcopy(self.c)
+        current=copy.deepcopy(self.c);current['features']['photos']=not current['features']['photos']
+        root=Path(self.directory.name)
+        write_json(root/'state/onboarding.json',{'schema_version':1,'directory':'synthetic-retained-authority'})
+        self.enterContext(patch.object(policy,'_migration_paths',return_value=(root,path)))
+        self.enterContext(patch.object(policy,'validate_config'))
+        self.enterContext(patch.object(policy.storage,'verify',return_value={'storage':'verified','mount':{'source':'UUID=fixture'}}))
+        self.targets={'sonarr':{'container':'a'*64,'image':'sha256:'+'b'*64,'directory':{'device':1,'inode':2}}}
+        self.target_mock=self.enterContext(patch.object(policy,'_migration_targets',side_effect=lambda c,r:copy.deepcopy(self.targets)))
+        self.vendor.calls.clear();self.vendor.extra_calls.clear()
+        self.options={'request':self.vendor,'secret_resolver':lambda _: 'fixture-key'}
+        return current,previous,path,legacy
+
+    def test_legacy_requires_exact_predecessor_and_unknown_scope_is_not_adopted(self):
+        current,previous,path,legacy=self.migration()
+        with self.assertRaises(SafetyError):policy.verify(current,**self.options)
+        self.assertTrue(policy.verify(previous,**self.options)['ok'])
+        wrong=copy.deepcopy(previous);wrong['timezone']='America/Denver'
+        with self.assertRaises(SafetyError):policy.binding_migration_plan(current,wrong,**self.options)
+        write_json(path,{**legacy,'binding_scope':'unknown'},replace=True)
+        with self.assertRaises(SafetyError):policy.binding_migration_plan(current,previous,**self.options)
+        self.assertFalse(self.vendor.writes)
+
+    def test_reviewed_metadata_only_migration_keeps_native_policy_requests_and_private_original(self):
+        current,previous,path,legacy=self.migration()
+        self.vendor.requests=[{'id':8,'type':'movie','profileId':7,'serverId':0}]
+        before=copy.deepcopy((self.vendor.profiles,self.vendor.formats,self.vendor.titles,self.vendor.connections,self.vendor.requests))
+        raw=path.read_bytes()
+        reviewed=policy.binding_migration_plan(current,previous,**self.options)
+        self.assertEqual(1,len(reviewed['files']))
+        self.assertNotIn('fixture-key',json.dumps(reviewed))
+        self.assertNotIn('fixture-owned-private-key',json.dumps(reviewed))
+        result=policy.apply_binding_migration(current,previous,reviewed,**self.options)
+        self.assertTrue(result['ok']);self.assertEqual(0,result['native_settings_written'])
+        self.assertEqual(raw,Path(result['backup'],'request-profiles.json').read_bytes())
+        after=policy.receipt(current)
+        self.assertEqual(legacy,{k:v for k,v in after.items() if k!='binding_scope'}|{'config_digest':legacy['config_digest']})
+        self.assertEqual(before,(self.vendor.profiles,self.vendor.formats,self.vendor.titles,self.vendor.connections,self.vendor.requests))
+        self.assertFalse(self.vendor.writes)
+        self.assertTrue(all(method=='GET' for method,_,_ in self.vendor.extra_calls))
+        self.assertTrue(policy.verify(current,**self.options)['ok'])
+        retry=policy.binding_migration_plan(current,previous,**self.options)
+        self.assertEqual([],retry['files'])
+        self.assertEqual(0,policy.apply_binding_migration(current,previous,retry,**self.options)['files_updated'])
+
+    def test_migration_refuses_authority_change_incomplete_policy_or_wrong_saved_ids(self):
+        current,previous,path,legacy=self.migration()
+        changed=copy.deepcopy(current);changed['storage']['data_root']='/other'
+        with self.assertRaisesRegex(SafetyError,'identity changed'):
+            policy.binding_migration_plan(changed,previous,**self.options)
+        self.vendor.profiles['sonarr'][0]['upgradeAllowed']=True
+        with self.assertRaises(SafetyError):policy.binding_migration_plan(current,previous,**self.options)
+        self.assertEqual(legacy,json.loads(path.read_text()));self.assertFalse(self.vendor.writes)
+
+    def test_raw_receipt_request_and_target_drift_invalidate_review_without_metadata_write(self):
+        current,previous,path,_=self.migration()
+        reviewed=policy.binding_migration_plan(current,previous,**self.options)
+        original=path.read_text();path.write_text(original+'\n')
+        with self.assertRaisesRegex(SafetyError,'changed after review'):
+            policy.apply_binding_migration(current,previous,reviewed,**self.options)
+        path.write_text(original)
+        self.vendor.requests=[{'id':8,'type':'movie','profileId':7,'serverId':0}]
+        with self.assertRaisesRegex(SafetyError,'changed after review'):
+            policy.apply_binding_migration(current,previous,reviewed,**self.options)
+        self.vendor.requests=[]
+        self.targets['sonarr']['container']='c'*64
+        with self.assertRaisesRegex(SafetyError,'changed after review'):
+            policy.apply_binding_migration(current,previous,reviewed,**self.options)
+        self.assertFalse(self.vendor.writes)
+        self.assertEqual([],list(Path(self.directory.name,'backups').glob('request-binding-*')))
+
+    def test_migration_keeps_backup_and_can_retry_after_interrupted_receipt_publication(self):
+        current,previous,path,_=self.migration()
+        reviewed=policy.binding_migration_plan(current,previous,**self.options)
+        real=policy.write_json
+        def lost_after_publish(target,value,**kwargs):
+            real(target,value,**kwargs)
+            if target==path:raise RuntimeError('synthetic lost completion')
+        with patch.object(policy,'write_json',side_effect=lost_after_publish):
+            with self.assertRaisesRegex(RuntimeError,'synthetic'):
+                policy.apply_binding_migration(current,previous,reviewed,**self.options)
+        self.assertEqual(1,len(list(Path(self.directory.name,'backups').glob('request-binding-*'))))
+        retry=policy.binding_migration_plan(current,previous,**self.options)
+        self.assertEqual([],retry['files'])
+        self.assertTrue(policy.apply_binding_migration(current,previous,retry,**self.options)['ok'])
+        self.assertFalse(self.vendor.writes)
+
+
+class MigrationTargetTests(unittest.TestCase):
+    def setUp(self):
+        self.c=config();self.c['deployment_id']='f26af450-4590-4d51-aa7a-f3284b90f174'
+        self.bad=None;self.calls=[]
+        self.enterContext(patch.object(engine,'check_container_ownership'))
+        self.enterContext(patch.object(policy.onboarding,'check_targets'))
+        self.enterContext(patch.object(policy.onboarding,'_identity',return_value={'device':1,'inode':2}))
+        reservation={'apps':{a:{'directory':{'device':1,'inode':2}} for a in ('sonarr','radarr','seerr')}}
+        self.reservation=self.enterContext(patch.object(policy.onboarding,'_load',return_value=reservation))
+        self.enterContext(patch.object(engine,'recipe',return_value={'services':{a:{'image':'fixture-'+a+'@sha256:'+'b'*64} for a in ('sonarr','radarr','seerr')}}))
+
+    def runner(self,argv,**options):
+        self.calls.append(argv)
+        args=argv[3:]
+        defaults={'Cmd':None,'Entrypoint':['/init'],'WorkingDir':''}
+        if args[0]=='ps':
+            app=next(v.split('=')[-1] for v in args if v.startswith('label=com.docker.compose.service='))
+            self.app=app;value={'sonarr':'a','radarr':'b','seerr':'c'}[app]*64
+        elif args[:2]==['image','inspect']:
+            value='sha256:'+'b'*64 if args[-1]=='{{.Id}}' else json.dumps(defaults)
+        elif args[0]=='inspect':
+            if args[-1]=='{{json .Image}}':value=json.dumps('sha256:'+('f' if self.bad=='image' else 'b')*64)
+            elif args[-1]=='{{json .Config}}':
+                actual={**defaults,'WorkingDir':'/'}
+                if self.bad=='command':actual['Cmd']=['alternate']
+                if self.bad=='workdir':actual['WorkingDir']='/alternate'
+                value=json.dumps(actual)
+            elif args[-1]=='{{json .Mounts}}':
+                destination='/app/config' if self.app=='seerr' else '/config'
+                mounts=[{'Destination':destination,'Type':'bind','Source':str(Path(self.c['install_root'])/'appdata'/self.app),'RW':True}]
+                if self.app!='seerr':mounts.append({'Destination':'/data','Type':'bind','Source':self.c['storage']['data_root'],'RW':True})
+                if self.bad=='source':mounts[0]['Source']='/wrong'
+                if self.bad=='readonly':mounts[0]['RW']=False
+                if self.bad=='nested':mounts.append({'Destination':destination+'/data','Source':'/wrong'})
+                if self.bad=='data-nested':mounts.append({'Destination':'/data/library','Source':'/wrong'})
+                if self.bad=='app-overlay':mounts.append({'Destination':'/app','Source':'/wrong'})
+                if self.bad=='lsiopy-overlay':mounts.append({'Destination':'/lsiopy','Source':'/wrong'})
+                if self.bad=='lsiopy-nested':mounts.append({'Destination':'/lsiopy/bin','Source':'/wrong'})
+                value=json.dumps(mounts)
+            else:raise AssertionError(argv)
+        else:raise AssertionError(argv)
+        return subprocess.CompletedProcess(argv,0,value,'')
+
+    def test_target_proves_original_directories_images_mounts_and_normalized_root_workdir(self):
+        result=policy._migration_targets(self.c,self.runner)
+        self.assertEqual({'sonarr','radarr','seerr'},set(result))
+        self.assertTrue(all(row['image']=='sha256:'+'b'*64 for row in result.values()))
+        self.assertFalse(any('exec' in argv for argv in self.calls))
+
+    def test_wrong_process_mount_or_image_is_refused(self):
+        for bad in ('image','command','workdir','source','readonly','nested','data-nested','app-overlay','lsiopy-overlay','lsiopy-nested'):
+            with self.subTest(bad=bad):
+                self.bad=bad
+                with self.assertRaisesRegex(SafetyError,'image, process or persistent'):
+                    policy._migration_targets(self.c,self.runner)
+
+    def test_replaced_or_missing_original_directory_reservation_cannot_be_adopted(self):
+        self.reservation.return_value['apps']['sonarr']['directory']['inode']=99
+        with self.assertRaisesRegex(SafetyError,'directory changed'):policy._migration_targets(self.c,self.runner)
+        self.reservation.return_value=None
+        with self.assertRaisesRegex(SafetyError,'original application'):policy._migration_targets(self.c,self.runner)
+
+
+class BindingCliTests(unittest.TestCase):
+    def test_binding_plan_uses_root_private_predecessor_and_separate_backend(self):
+        previous=cli.default_config();current=copy.deepcopy(previous);current['features']['photos']=True
+        reviewed={'kind':'request-profile-binding-migration','review_hash':'fixture-review'}
+        with patch.object(cli,'load_config',return_value=current), \
+             patch.object(policy.onboarding,'_private_json',return_value=previous) as private, \
+             patch.object(policy,'binding_migration_plan',return_value=reviewed) as plan, \
+             patch.object(cli,'write_json') as write,redirect_stdout(io.StringIO()):
+            self.assertEqual(0,cli.main(['profiles','binding-plan','--previous-config','old-site.json','--out','review.json']))
+        private.assert_called_once_with(Path('old-site.json'))
+        plan.assert_called_once_with(current,previous)
+        write.assert_called_once_with('review.json',reviewed)
+
+    def test_binding_apply_rejects_hash_mismatch_without_migration_or_profile_apply(self):
+        with patch.object(cli,'load_config',return_value=cli.default_config()), \
+             patch.object(policy.onboarding,'_private_json',return_value=cli.default_config()), \
+             patch.object(cli,'private_read',return_value='{"review_hash":"other"}'), \
+             patch.object(policy,'apply_binding_migration') as migrate, \
+             patch.object(media_profiles,'apply') as apply,redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
+            self.assertEqual(1,cli.main(['profiles','binding-apply','--previous-config','old-site.json','--plan','review.json','--accept-plan','reviewed']))
+        migrate.assert_not_called();apply.assert_not_called()
+
+    def test_binding_actions_require_predecessor_and_cannot_include_new_policy_choices(self):
+        for args in (['profiles','binding-plan'],['profiles','binding-plan','--previous-config','old','--global-sizes'],
+                     ['profiles','binding-plan','--previous-config','old','--request-choices'],
+                     ['profiles','verify','--previous-config','old']):
+            with self.subTest(args=args),patch.object(cli,'load_config',return_value=cli.default_config()), \
+                 patch.object(policy,'binding_migration_plan') as plan, \
+                 redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
+                self.assertEqual(1,cli.main(args))
+                plan.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

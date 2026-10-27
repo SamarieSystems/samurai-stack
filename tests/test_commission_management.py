@@ -74,7 +74,9 @@ class ManagementSocketTests(unittest.TestCase):
         result = subprocess.run(
             [shutil.which("node"), "-e", RUNNER],
             input=json.dumps({"source": commission.SOCKET_SCRIPT, "fixture": fixture}),
-            capture_output=True, text=True, timeout=5, check=True,
+            # The protocol fixture has its own one-second watchdog. Allow a
+            # separate process-start budget for contended hosted CI runners.
+            capture_output=True, text=True, timeout=20, check=True,
         )
         return json.loads(result.stdout)
 

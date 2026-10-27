@@ -3,7 +3,40 @@
 The dated sections record measured results for releases and their candidates. They
 do not claim that every provider, device or deployment has been tested.
 
-## 0.2.7: Native photos and delivered English subtitles
+## 0.2.8: Optional-stage continuity and reboot acceptance
+
+October 26, 2026. The v0.2.7 candidate remained unpublished after the final
+readback found that enabling photos invalidated whole-configuration subtitle and
+request-quality receipts. Native provider settings, the delivered subtitle and
+the four request choices were still correct. The follow-up binds these control
+files to their media-stage inputs and keeps explicit reviewed predecessor
+migrations for older receipts. The subtitle migration changed two private
+control files and passed independent native readback with no settings writes,
+searches, jobs or service restarts. Original control bytes were backed up.
+The request migration changed one receipt and retained both apps' four profile
+IDs, native scores and size limits, dropdowns, requests and queues. All fifteen
+container states were unchanged; 138 native authenticated reads made no writes.
+
+The final Windows suite passed 1,130 tests with 48 explicit platform/runtime
+skips. The focused subtitle suite passed 130 tests and the request suite passed
+35 tests under actual unprivileged Linux UID 65534.
+
+A complete guest reboot returned all fifteen production containers and eight
+required systemd services/timers without a manual start. Native photo logins,
+roles, quotas, policy and original-download checks passed after the reboot.
+The 291 original subtitle files, the video and the downloaded English sidecar
+retained their recorded hashes and file identity. Torrent interface binding,
+unlimited global rates and upload slots passed native readback; the current
+listen port matched the VPN's forwarded port. No recovery-time benchmark is
+claimed from this final observer.
+
+The tagged candidate's Python 3.13 job also hit the synthetic Node subprocess's
+five-second process deadline; the same commit's main-branch matrix and Python
+3.11 tag job passed. Forty repeated fresh Dockge fixture runs passed locally.
+The fixture now allows a separate twenty-second process-start budget while its
+internal one-second protocol watchdog and production deadlines remain unchanged.
+
+## 0.2.7 candidate: Native photos and delivered English subtitles
 
 October 26, 2026. The final Windows suite completed 1,104 tests with 47
 explicit platform/runtime skips and no failures. Focused native-target,

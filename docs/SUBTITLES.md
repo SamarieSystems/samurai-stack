@@ -83,6 +83,35 @@ proof: a successful single-title test must produce a valid new English sidecar
 and a matching Bazarr download-history entry. A queued or completed search job
 without those artifacts is not a successful subtitle download.
 
+## Existing subtitle input bindings
+
+Current subtitle receipts and private provider input are bound to the Bazarr
+stage's deployment, host, media address/project, application path, storage
+identity and UID/GID. Enabling a separate photo or music stage does not change
+that authority. The running pinned image, provider source hashes and original
+Bazarr directory are still verified separately.
+
+Older receipts used the entire site configuration. If a later optional-stage
+change makes that old binding fail, keep the receipts and credentials. Use the
+**actual captured pre-change site file**, whose full digest must match those
+legacy inputs, to review a metadata-only migration:
+
+```bash
+./stack --config /path/to/site.json subtitles binding-plan --previous-config /path/to/captured-old-site.json --out subtitle-binding-plan.json
+./stack --config /path/to/site.json subtitles binding-apply --previous-config /path/to/captured-old-site.json --plan subtitle-binding-plan.json --accept-plan REVIEW_HASH
+./stack --config /path/to/site.json subtitles verify
+```
+
+The review refuses changed media endpoints, project names, paths, storage or
+UID/GID. It also verifies the saved native policy, selected provider credentials,
+image/source hashes and persistent Bazarr directory. Apply checks the exact
+receipt/input hashes again under the deployment lock, saves private byte-for-byte
+backups, and changes only binding metadata. It does not update native settings,
+start jobs, move media or restart services. Backups of provider input contain
+credentials and must stay private. After an interrupted metadata update, generate
+a fresh plan against the same confirmed predecessor and retry; matching partial
+updates are retained. Missing, foreign or edited policy resources are not adopted.
+
 ## Existing-library processing
 
 This release does **not** perform existing-library subtitle backfill. Bazarr's

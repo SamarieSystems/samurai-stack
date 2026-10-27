@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.2.7 - 2026-10-26
+## 0.2.8 - 2026-10-26
+
+- Supersede the unpublished v0.2.7 candidate. Keep subtitle and request-quality
+  ownership bound to media-stage inputs so enabling photos does not invalidate
+  their saved policies or provider input.
+  Existing whole-configuration receipts require a reviewed, exact predecessor
+  configuration and live target/policy checks. Back up and update only binding
+  metadata; credentials, profile IDs, requests and native settings are preserved.
+- Give the synthetic management protocol process a separate CI startup budget
+  from its short internal protocol watchdog. Runtime connection deadlines and
+  account-enrollment guards are unchanged.
+- Include the native photo enrollment, bounded resources, capacity holds and
+  delivered English-subtitle changes listed in the candidate notes below.
+
+## 0.2.7 - 2026-10-26 (unpublished candidate)
 
 - Enroll a proven-new Immich owner through the terminal and native API. Bind
   first-run authority to the host, live datastore, exact image and reviewed

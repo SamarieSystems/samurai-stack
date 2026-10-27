@@ -108,12 +108,13 @@ def parser():
     hardlinks = commands.add_parser("hardlinks", help="Verify only Sonarr/Radarr hardlinks in an existing installation")
     hardlinks.add_argument("--apply", action="store_true", help="Enable hardlinks and verify readback; no scans, imports or redeploy")
     profiles = commands.add_parser("profiles", help="Review bounded media profiles; explicit request choices can classify metadata-confirmed anime")
-    profiles.add_argument("action", choices=["plan", "apply", "verify"])
+    profiles.add_argument("action", choices=["plan", "apply", "verify", "binding-plan", "binding-apply"])
     profiles.add_argument("--global-sizes", action="store_true", help="Explicitly include shared quality size limits in plan/verify")
     profiles.add_argument("--request-choices", action="store_true", help="Plan-only opt-in: four HD/anime/encoded-UHD request choices, no searches or automatic upgrades")
     profiles.add_argument("--out", default="profiles-plan.json")
     profiles.add_argument("--plan")
     profiles.add_argument("--accept-plan")
+    profiles.add_argument("--previous-config", help="Exact root-private predecessor capture for metadata-only receipt binding migration")
     naming = commands.add_parser("naming", help="Review future-import filenames and Jellyfin folder IDs; never rename existing files")
     naming.add_argument("action", choices=["plan", "apply", "verify"])
     naming.add_argument("--out", default="naming-plan.json")
@@ -131,8 +132,9 @@ def parser():
     indexers.add_argument("--plan")
     indexers.add_argument("--accept-plan")
     subtitles = commands.add_parser("subtitles", help="Review future English subtitle defaults; no existing-library backfill")
-    subtitles.add_argument("action", choices=["plan", "apply", "verify"])
+    subtitles.add_argument("action", choices=["plan", "apply", "verify", "binding-plan", "binding-apply"])
     subtitles.add_argument("--providers", help="Plan-only comma-separated supported providers; keeps saved choices, new default gestdown (TV only)")
+    subtitles.add_argument("--previous-config", help="Binding migration only: exact captured configuration used by legacy subtitle inputs")
     subtitles.add_argument("--out", default="subtitles-plan.json")
     subtitles.add_argument("--plan")
     subtitles.add_argument("--accept-plan")
@@ -200,7 +202,24 @@ def main(argv=None):
                 result = hardlinks.run(c, apply=args.apply)
             elif args.command == "profiles":
                 from . import media_profiles
-                if args.action == "plan":
+                if args.previous_config is not None and args.action not in {"binding-plan", "binding-apply"}:
+                    raise SafetyError("A previous request configuration belongs only to binding migration")
+                if args.action in {"binding-plan", "binding-apply"}:
+                    from . import onboarding, request_profiles
+                    if not args.previous_config or args.global_sizes or args.request_choices:
+                        raise SafetyError("Request binding migration needs only its exact --previous-config capture; it cannot change policy choices")
+                    previous = onboarding._private_json(Path(args.previous_config))
+                    if args.action == "binding-plan":
+                        result = request_profiles.binding_migration_plan(c, previous)
+                        write_json(args.out, result)
+                    else:
+                        if not args.plan or not args.accept_plan:
+                            raise SafetyError("Request binding apply requires --plan and --accept-plan")
+                        document = json.loads(private_read(args.plan))
+                        if document.get("review_hash") != args.accept_plan:
+                            raise SafetyError("Request binding reviewed plan hash does not match")
+                        result = request_profiles.apply_binding_migration(c, previous, document)
+                elif args.action == "plan":
                     if args.request_choices:
                         from . import request_profiles
                         result = request_profiles.plan(c, include_global_sizes=args.global_sizes)
@@ -266,7 +285,24 @@ def main(argv=None):
                 from . import subtitle_setup
                 if args.action != "plan" and args.providers is not None:
                     raise SafetyError("Subtitle provider choices belong only in the reviewed plan")
-                if args.action == "plan":
+                if args.previous_config is not None and args.action not in {"binding-plan", "binding-apply"}:
+                    raise SafetyError("A previous subtitle configuration belongs only to binding migration")
+                if args.action in {"binding-plan", "binding-apply"}:
+                    from . import onboarding
+                    if not args.previous_config:
+                        raise SafetyError("Subtitle binding migration requires the exact --previous-config capture")
+                    previous = onboarding._private_json(Path(args.previous_config))
+                    if args.action == "binding-plan":
+                        result = subtitle_setup.binding_migration_plan(c, previous)
+                        write_json(args.out, result)
+                    else:
+                        if not args.plan or not args.accept_plan:
+                            raise SafetyError("Subtitle binding apply requires --plan and --accept-plan")
+                        document = json.loads(private_read(args.plan))
+                        if document.get("review_hash") != args.accept_plan:
+                            raise SafetyError("Subtitle binding reviewed plan hash does not match")
+                        result = subtitle_setup.apply_binding_migration(c, previous, document)
+                elif args.action == "plan":
                     providers = args.providers.split(',') if args.providers is not None else None
                     result = subtitle_setup.plan(c, providers)
                     write_json(args.out, result)

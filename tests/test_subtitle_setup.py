@@ -1,6 +1,8 @@
 """Bazarr future-only policy, destructive collection semantics and private input."""
 import copy
+from contextlib import nullcontext
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,7 +13,7 @@ from urllib.parse import urlsplit
 
 from samurai_stack import engine, onboarding, subtitle_setup as subtitles
 from samurai_stack.cli import default_config
-from samurai_stack.safety import SafetyError, write_json
+from samurai_stack.safety import SafetyError, digest, write_json
 
 KEY = "fixture-subtitle-api-key"  # release-audit: synthetic - isolated Bazarr credential
 
@@ -159,6 +161,146 @@ class SubtitleTests(unittest.TestCase):
         self.assertTrue(result['movie_provider_configured'])
         self.assertTrue(any('legacy provider' in n for n in result['notifications']))
         self.assertEqual(subtitles.plan(self.c, **self.options())['providers'], ['gestdown', 'yifysubtitles'])
+
+    def migration_fixture(self, *, selected=True):
+        previous = copy.deepcopy(self.c)
+        supplied = {'username': 'fixture-provider-user', 'password': 'fixture-provider-private'}  # release-audit: synthetic - subtitle binding migration fixture
+        subtitles.save_provider_credentials(self.c, 'opensubtitlescom', supplied)
+        self.apply(self.plan(['gestdown', 'opensubtitlescom'] if selected else ['gestdown']))
+        paths = [self.root / 'state/subtitle-setup.json', self.root / 'secrets/subtitle-provider-opensubtitlescom.json']
+        for path in paths:
+            value = json.loads(path.read_text())
+            value.pop('binding_scope')
+            value['config_digest'] = digest(previous)
+            write_json(path, value, replace=True)
+        originals = {str(path): path.read_bytes() for path in paths}
+        (self.root / 'backups').mkdir(mode=0o700)
+        self.c['features'].update(photos=True, music=True)
+        self.c['extras'] = {'photos': {'machine_learning': False}, 'music': {'soulseek_mode': 'offline'}}
+        self.enterContext(patch.object(subtitles, 'validate_config'))  # Synthetic Windows/temp paths are not deployable sites.
+        self.migration_lock = self.enterContext(patch.object(engine, 'deployment_lock', side_effect=lambda _: nullcontext()))
+        self.vendor.calls.clear()
+        return previous, supplied, paths, originals
+
+    def migration_plan(self, previous):
+        return subtitles.binding_migration_plan(self.c, previous, **self.options())
+
+    def migrate(self, previous, document):
+        return subtitles.apply_binding_migration(self.c, previous, document, **self.options())
+
+    def test_scoped_binding_survives_photo_and_music_choices_without_migration(self):
+        supplied = {'username': 'fixture-provider-user', 'password': 'fixture-provider-private'}  # release-audit: synthetic - stage-specific credential fixture
+        subtitles.save_provider_credentials(self.c, 'opensubtitlescom', supplied)
+        self.apply(self.plan(['gestdown', 'opensubtitlescom']))
+        self.c['features'].update(photos=True, music=True)
+        self.c['extras'] = {'photos': {'machine_learning': False}}
+        self.vendor.calls.clear()
+        self.assertTrue(subtitles.verify(self.c, **self.options())['ok'])
+        self.assertFalse(self.writes())
+
+    def test_scoped_binding_rejects_endpoint_storage_uid_and_host_changes(self):
+        binding = subtitles._binding(self.c)
+        for section, key, value in ((None, 'bind_address', '192.168.50.99'), (None, 'install_root', '/different-apps'),
+                                    ('hosts', 'media', '192.168.50.99'), ('storage', 'data_root', '/different-media'),
+                                    (None, 'puid', self.c['puid'] + 1), (None, 'pgid', self.c['pgid'] + 1)):
+            changed = copy.deepcopy(self.c)
+            (changed if section is None else changed[section])[key] = value
+            self.assertFalse(subtitles._matches_binding(changed, binding), (section, key))
+        with patch.object(engine, 'host_identity', return_value='other-host'):
+            self.assertFalse(subtitles._matches_binding(self.c, binding))
+        self.assertFalse(subtitles._matches_binding(self.c, {**binding, 'binding_scope': 'unknown-future-scope'}))
+
+    def test_reviewed_binding_migration_preserves_native_state_and_private_bytes_backup(self):
+        previous, supplied, paths, originals = self.migration_fixture()
+        document = self.migration_plan(previous)
+        self.assertEqual(len(document['files']), 2)
+        self.assertNotIn(supplied['password'], json.dumps(document))
+        result = self.migrate(previous, document)
+        self.assertTrue(result['ok']); self.assertEqual(result['files_updated'], 2)
+        self.assertEqual(result['native_settings_written'], 0)
+        self.assertEqual(result['subtitle_jobs_started'], 0)
+        self.assertFalse(self.writes())
+        self.migration_lock.assert_called_once_with(self.c)
+        for index, path in enumerate(paths):
+            self.assertEqual((Path(result['backup']) / (str(index) + '-' + path.name)).read_bytes(), originals[str(path)])
+            self.assertEqual(json.loads(path.read_text())['binding_scope'], subtitles.BINDING_SCOPE)
+        self.assertEqual(json.loads(paths[1].read_text())['credentials'], supplied)
+        self.assertTrue(subtitles.verify(self.c, **self.options())['ok'])
+
+    def test_unselected_supported_private_input_is_migrated_without_being_enabled(self):
+        previous, supplied, paths, _ = self.migration_fixture(selected=False)
+        document = self.migration_plan(previous)
+        self.assertEqual(document['inactive_private_inputs'], ['opensubtitlescom'])
+        self.migrate(previous, document)
+        self.assertEqual(self.vendor.general['enabled_providers'], ['gestdown'])
+        self.assertNotIn('opensubtitlescom', self.vendor.other_settings)
+        self.assertEqual(subtitles._credentials(self.c, ['opensubtitlescom'])['opensubtitlescom'], supplied)
+        self.assertFalse(self.writes())
+
+    def test_binding_migration_requires_exact_predecessor_and_same_media_authority(self):
+        previous, _, _, _ = self.migration_fixture()
+        unrelated = copy.deepcopy(previous); unrelated['features']['dashboard'] = not unrelated['features'].get('dashboard', False)
+        with self.assertRaisesRegex(SafetyError, 'another host or configuration'):
+            self.migration_plan(unrelated)
+        changed = copy.deepcopy(previous); changed['puid'] += 1
+        with self.assertRaisesRegex(SafetyError, 'identity changed'):
+            self.migration_plan(changed)
+        self.assertFalse(self.writes())
+
+    def test_binding_migration_rejects_provider_native_or_persistent_target_drift(self):
+        previous, _, _, _ = self.migration_fixture()
+        original = copy.deepcopy(self.target)
+        for key in ('image', 'providers', 'directory'):
+            with self.subTest(key=key):
+                self.target.clear(); self.target.update(copy.deepcopy(original))
+                if key == 'image': self.target['image'] = 'sha256:' + 'e' * 64
+                elif key == 'providers': self.target['providers']['gestdown'] = 'f' * 64
+                else: self.target['directory']['inode'] += 1
+                with self.assertRaisesRegex(SafetyError, 'no binding was migrated'):
+                    self.migration_plan(previous)
+        self.target.clear(); self.target.update(original)
+        self.vendor.other_settings['opensubtitlescom']['password'] = 'fixture-owner-edited-private'  # release-audit: synthetic - native credential drift fixture
+        with self.assertRaisesRegex(SafetyError, 'did not retain the private'):
+            self.migration_plan(previous)
+        self.assertFalse(self.writes())
+
+    def test_raw_input_change_after_review_refuses_binding_apply(self):
+        previous, _, paths, _ = self.migration_fixture()
+        document = self.migration_plan(previous)
+        paths[1].write_bytes(paths[1].read_bytes() + b' ')
+        with self.assertRaisesRegex(SafetyError, 'changed after review'):
+            self.migrate(previous, document)
+        self.assertNotIn('binding_scope', json.loads(paths[0].read_text()))
+        self.assertFalse(self.writes())
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX private directory mode')
+    def test_binding_migration_requires_private_backup_parent(self):
+        previous, _, _, _ = self.migration_fixture()
+        (self.root / 'backups').chmod(0o755)
+        with self.assertRaisesRegex(SafetyError, 'root-private managed directory'):
+            self.migration_plan(previous)
+        self.assertFalse(self.writes())
+
+    def test_partial_metadata_migration_resumes_only_after_a_fresh_review(self):
+        previous, supplied, paths, _ = self.migration_fixture()
+        original_plan = self.migration_plan(previous)
+        actual_write = subtitles.write_json
+        def interrupted(path, value, **kwargs):
+            if Path(path) == paths[1] and value.get('binding_scope') == subtitles.BINDING_SCOPE:
+                raise OSError('synthetic interruption before second metadata replacement')
+            return actual_write(path, value, **kwargs)
+        with patch.object(subtitles, 'write_json', side_effect=interrupted):
+            with self.assertRaisesRegex(OSError, 'synthetic interruption'):
+                self.migrate(previous, original_plan)
+        self.assertEqual(json.loads(paths[0].read_text())['binding_scope'], subtitles.BINDING_SCOPE)
+        self.assertNotIn('binding_scope', json.loads(paths[1].read_text()))
+        with self.assertRaisesRegex(SafetyError, 'changed after review'):
+            self.migrate(previous, original_plan)
+        fresh = self.migration_plan(previous)
+        self.assertEqual(len(fresh['files']), 1)
+        self.migrate(previous, fresh)
+        self.assertEqual(subtitles._credentials(self.c, ['opensubtitlescom'])['opensubtitlescom'], supplied)
+        self.assertFalse(self.writes())
 
     def test_new_policy_preserves_profiles_languages_connections_and_does_not_search(self):
         custom = {**subtitles._profile(4), "name": "Existing French", "tag": "custom"}
